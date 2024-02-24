@@ -24,11 +24,16 @@ pub struct PlayerIndex(pub usize);
 #[derive(Debug, Copy, Clone)]
 pub struct FromPlayerIndex(pub usize);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct SlotIndex(pub usize);
 
+pub struct GameLog {
+    pub actions: Vec<PlayerAction>,
+    pub num_players: usize,
+}
+
 pub struct GameState {
-    pub draw_pile: Vec<Card>, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
+    pub draw_pile: Vec<usize>, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
     pub discard_pile: Vec<Card>,
     pub players: Vec<Player>,
@@ -52,10 +57,11 @@ pub enum HintAction {
     SameFace(CardFace),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlayerAction {
-    PlayCard(SlotIndex),
-    DiscardCard(SlotIndex),
-    GiveHint(PlayerIndex, HintAction),
+    PlayCard(SlotIndex, Card),
+    DiscardCard(SlotIndex, Card),
+    GiveHint(PlayerIndex, Vec<SlotIndex>, HintAction),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -88,7 +94,7 @@ pub enum Hint {
 
 #[derive(Debug)]
 pub struct Slot {
-  pub card: Card,
+  pub card: usize,
   pub hints: Vec<Hint>   
 }
 

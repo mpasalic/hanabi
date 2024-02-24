@@ -3,14 +3,40 @@ use strum::IntoEnumIterator;
 mod logic_tests;
 
 use crate::model::{
-        Card, CardFace, GameEffect, GameOutcome, GameState, Hint, HintAction, PlayedCardResult,
-        Player, PlayerAction, PlayerIndex, Slot, SlotIndex, CardSuit,
+        Card, CardFace, CardSuit, GameEffect, GameLog, GameOutcome, GameState, Hint, HintAction, PlayedCardResult, Player, PlayerAction, PlayerIndex, Slot, SlotIndex
     };
+
+impl GameLog { 
+    pub fn new(num_players: usize) -> Self {
+        GameLog {
+            actions: Vec::new(),
+            num_players,
+        }
+    }
+
+    pub fn log(&mut self, action: PlayerAction) {
+        self.actions.push(action);
+    }
+
+    pub fn undo(&mut self) {
+        self.actions.pop();
+    }
+
+    pub fn generate_state(&self) -> Result<GameState, String> {
+        let mut game = GameState::start(self.num_players)?;
+        for action in self.actions.iter() {
+            let effects = game.play(action.clone()).unwrap();
+            game.run_effects(effects).unwrap();
+        }
+        return Ok(game);
+    }
+
+}
 
 impl GameState {
     pub fn start(num_players: usize) -> Result<GameState, String> {
         let mut game = GameState {
-            draw_pile: new_standard_deck(),
+            draw_pile: new_ordered_deck(),
             discard_pile: Vec::new(),
             last_turn: None,
             played_cards: Vec::new(),
@@ -32,27 +58,17 @@ impl GameState {
     // precondition: assumes the the action was taken by the current player
     pub fn play(&self, action: PlayerAction) -> Result<Vec<GameEffect>, String> {
         use GameEffect::*;
-        let player_index = self.turn as usize % self.players.len();
-        let player_index = PlayerIndex(player_index);
-        let current_player = self
-            .players
-            .get(self.turn as usize % self.players.len())
-            .ok_or_else(|| "Invalid player index".to_string())?;
+        let player_index = PlayerIndex(self.turn as usize % self.players.len());
 
         match action {
-            PlayerAction::PlayCard(SlotIndex(index)) => {
-                let slot = current_player
-                    .hand
-                    .get(index)
-                    .and_then(|s| s.as_ref().map(|s| s))
-                    .ok_or_else(|| "Invalid slot index".to_string())?;
-                let play_result = self.check_play(&slot.card);
+            PlayerAction::PlayCard(SlotIndex(index), card) => {
+                let play_result = self.check_play(&card);
 
                 match play_result {
                     PlayedCardResult::Accepted => {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
-                            PlaceOnBoard(slot.card),
+                            PlaceOnBoard(card),
                             DrawCard(player_index),
                             NextTurn,
                         ]);
@@ -60,7 +76,7 @@ impl GameState {
                     PlayedCardResult::CompletedSet => {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
-                            PlaceOnBoard(slot.card),
+                            PlaceOnBoard(card),
                             DrawCard(player_index),
                             IncHint,
                             NextTurn,
@@ -69,6 +85,7 @@ impl GameState {
                     PlayedCardResult::Rejected => {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
+                            AddToDiscrard(card),
                             DrawCard(player_index),
                             BurnFuse,
                             NextTurn,
@@ -76,22 +93,16 @@ impl GameState {
                     }
                 }
             }
-            PlayerAction::DiscardCard(SlotIndex(index)) => {
-                let slot = current_player
-                    .hand
-                    .get(index)
-                    .and_then(|s| s.as_ref().map(|s| s))
-                    .ok_or_else(|| "Invalid slot index".to_string())?;
-
+            PlayerAction::DiscardCard(SlotIndex(index), card) => {
                 return Ok(vec![
                     RemoveCard(player_index, SlotIndex(index)),
-                    AddToDiscrard(slot.card),
+                    AddToDiscrard(card),
                     DrawCard(player_index),
                     IncHint,
                     NextTurn,
                 ]);
             }
-            PlayerAction::GiveHint(PlayerIndex(hinted_player_index), hint_type) => {
+            PlayerAction::GiveHint(PlayerIndex(hinted_player_index), slots, hint_action) => {
                 use HintAction::*;
 
                 if self.remaining_hint_count <= 0 {
@@ -102,34 +113,38 @@ impl GameState {
                     .players
                     .get(hinted_player_index)
                     .ok_or_else(|| "Invalid player index".to_string())?;
+
                 let hints: Vec<GameEffect> = hinted_player
                     .hand
                     .iter()
                     .enumerate()
                     .filter_map(|value| {
-                        if let (index, Some(slot)) = value {
+                        if let (index, Some(_)) = value {
                             let slot_index = SlotIndex(index);
-                            match (slot.card.face, slot.card.suit, hint_type) {
-                                (face, _, SameFace(face_hint)) if face == face_hint => {
+                            let slot_hinted = slots.contains(&slot_index);
+
+                            // TODO probably should check for conflicts?
+                            match (slot_hinted, hint_action) {
+                                (true, SameFace(face_hint)) => {
                                     Some(HintCard(
                                         PlayerIndex(hinted_player_index),
                                         slot_index,
                                         Hint::IsFace(face_hint),
                                     ))
                                 }
-                                (_, suit, SameSuit(suit_hint)) if suit == suit_hint => {
+                                (true, SameSuit(suit_hint)) => {
                                     Some(HintCard(
                                         PlayerIndex(hinted_player_index),
                                         slot_index,
                                         Hint::IsSuit(suit_hint),
                                     ))
                                 }
-                                (_, _, SameFace(face_hint)) => Some(HintCard(
+                                (false, SameFace(face_hint)) => Some(HintCard(
                                     PlayerIndex(hinted_player_index),
                                     slot_index,
                                     Hint::IsNotFace(face_hint),
                                 )),
-                                (_, _, SameSuit(suit_hint)) => Some(HintCard(
+                                (false, SameSuit(suit_hint)) => Some(HintCard(
                                     PlayerIndex(hinted_player_index),
                                     slot_index,
                                     Hint::IsNotSuit(suit_hint),
@@ -314,6 +329,7 @@ impl Card {
     }
 }
 
+
 pub fn new_standard_deck() -> Vec<Card> {
     let mut deck : Vec<Card> = CardFace::iter().flat_map(|face| CardSuit::iter().flat_map(move |suit| {
         let num = match face {
@@ -329,4 +345,14 @@ pub fn new_standard_deck() -> Vec<Card> {
         deck.swap(index, swap);
     }
     return deck;
+}
+
+
+pub fn new_ordered_deck() -> Vec<usize> {
+    let standard_deck = new_standard_deck();
+    let mut ordered_deck = vec![];
+    for index in 0..standard_deck.len() {
+        ordered_deck.insert(0, index)
+    }
+    return ordered_deck;
 }
