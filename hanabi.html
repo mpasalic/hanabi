@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hello!</title>
+
+    <script type="module">
+      const socket = new WebSocket("ws://127.0.0.1:7879");
+      socket.onopen = (event) => {
+        console.log("Connected to the server");
+        socket.send("Hello!");
+      };
+
+      socket.onmessage = (event) => {
+        console.log("Message received: " + event.data);
+        if (event.data === "refresh") {
+          console.log("Refreshing the page");
+          location.reload();
+        }
+      };
+    </script>
+  </head>
+  <body>
+    <h1>Hanabi Game!</h1>
+    <div style="white-space: pre-wrap; font-family: monospace">{{output}}</div>
+    <p>
+      What is your move? [play: p (slot) (suit)(face), discard: d (slot)
+      (suit)(face), hint: h (player_index) (suit|face) (slots), undo: u, quit: q
+      ] (suits = rgywb, faces = 12345)
+    </p>
+    <form action="/" method="post">
+      <input type="command" name="command" placeholder="" />
+      <button type="submit">Submit</button>
+    </form>
+  </body>
+</html>
