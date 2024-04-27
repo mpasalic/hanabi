@@ -1,16 +1,19 @@
+use itertools::Itertools;
 use rand::Rng;
 use strum::IntoEnumIterator;
 mod logic_tests;
 
 use crate::model::{
-        Card, CardFace, CardSuit, GameEffect, GameLog, GameOutcome, GameState, Hint, HintAction, PlayedCardResult, Player, PlayerAction, PlayerIndex, Slot, SlotIndex
-    };
+    Card, CardFace, CardSuit, GameEffect, GameLog, GameOutcome, GameState, Hint, HintAction,
+    PlayedCardResult, Player, PlayerAction, PlayerIndex, Slot, SlotIndex,
+};
 
-impl GameLog { 
-    pub fn new(num_players: usize) -> Self {
+impl GameLog {
+    pub fn new(num_players: usize, hand_size: usize) -> Self {
         GameLog {
             actions: Vec::new(),
             num_players,
+            hand_size,
         }
     }
 
@@ -23,34 +26,41 @@ impl GameLog {
     }
 
     pub fn generate_state(&self) -> Result<GameState, String> {
-        let mut game = GameState::start(self.num_players)?;
+        let mut game = GameState::start(self.num_players, self.hand_size)?;
         for action in self.actions.iter() {
             let effects = game.play(action.clone()).unwrap();
             game.run_effects(effects).unwrap();
         }
         return Ok(game);
     }
-
 }
 
 impl GameState {
-    pub fn start(num_players: usize) -> Result<GameState, String> {
+    pub fn start(num_players: usize, num_cards: usize) -> Result<GameState, String> {
         let mut game = GameState {
             draw_pile: new_ordered_deck(),
             discard_pile: Vec::new(),
             last_turn: None,
             played_cards: Vec::new(),
-            players: (0..num_players).into_iter().map(|_index| Player { hand: Vec::new()}).collect(),
+            players: (0..num_players)
+                .into_iter()
+                .map(|_index| Player {
+                    hand: (0..num_cards).map(|_slot_index| None).collect_vec(),
+                })
+                .collect(),
             remaining_bomb_count: 3,
-            remaining_hint_count: 10,
+            remaining_hint_count: 8,
             turn: 0,
         };
 
         use GameEffect::*;
-        let init_effects = (0..5)
-            .flat_map(|_index| {
-                (0..num_players).map(|player_index| DrawCard(PlayerIndex(player_index)))
-            }).collect();
+        let init_effects = (0..4)
+            .flat_map(move |slot_index| {
+                (0..num_players).map(move |player_index| {
+                    DrawCard(PlayerIndex(player_index), SlotIndex(slot_index))
+                })
+            })
+            .collect();
         game.run_effects(init_effects)?;
         return Ok(game);
     }
@@ -69,7 +79,7 @@ impl GameState {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
                             PlaceOnBoard(card),
-                            DrawCard(player_index),
+                            DrawCard(player_index, SlotIndex(index)),
                             NextTurn,
                         ]);
                     }
@@ -77,7 +87,7 @@ impl GameState {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
                             PlaceOnBoard(card),
-                            DrawCard(player_index),
+                            DrawCard(player_index, SlotIndex(index)),
                             IncHint,
                             NextTurn,
                         ]);
@@ -86,7 +96,7 @@ impl GameState {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
                             AddToDiscrard(card),
-                            DrawCard(player_index),
+                            DrawCard(player_index, SlotIndex(index)),
                             BurnFuse,
                             NextTurn,
                         ]);
@@ -97,7 +107,7 @@ impl GameState {
                 return Ok(vec![
                     RemoveCard(player_index, SlotIndex(index)),
                     AddToDiscrard(card),
-                    DrawCard(player_index),
+                    DrawCard(player_index, SlotIndex(index)),
                     IncHint,
                     NextTurn,
                 ]);
@@ -125,20 +135,16 @@ impl GameState {
 
                             // TODO probably should check for conflicts?
                             match (slot_hinted, hint_action) {
-                                (true, SameFace(face_hint)) => {
-                                    Some(HintCard(
-                                        PlayerIndex(hinted_player_index),
-                                        slot_index,
-                                        Hint::IsFace(face_hint),
-                                    ))
-                                }
-                                (true, SameSuit(suit_hint)) => {
-                                    Some(HintCard(
-                                        PlayerIndex(hinted_player_index),
-                                        slot_index,
-                                        Hint::IsSuit(suit_hint),
-                                    ))
-                                }
+                                (true, SameFace(face_hint)) => Some(HintCard(
+                                    PlayerIndex(hinted_player_index),
+                                    slot_index,
+                                    Hint::IsFace(face_hint),
+                                )),
+                                (true, SameSuit(suit_hint)) => Some(HintCard(
+                                    PlayerIndex(hinted_player_index),
+                                    slot_index,
+                                    Hint::IsSuit(suit_hint),
+                                )),
                                 (false, SameFace(face_hint)) => Some(HintCard(
                                     PlayerIndex(hinted_player_index),
                                     slot_index,
@@ -242,7 +248,7 @@ impl GameState {
 
     pub fn run_effect(&mut self, effect: GameEffect) -> Result<Option<GameOutcome>, String> {
         match effect {
-            GameEffect::DrawCard(PlayerIndex(player_index)) => {
+            GameEffect::DrawCard(PlayerIndex(player_index), SlotIndex(slot_index)) => {
                 let player = self
                     .players
                     .get_mut(player_index)
@@ -250,10 +256,14 @@ impl GameState {
                 let drawed_card = self.draw_pile.pop();
 
                 if let Some(card) = drawed_card {
-                    player.hand.push(Some(Slot {
-                        card,
-                        hints: Vec::new(),
-                    }));
+                    player
+                        .hand
+                        .get_mut(slot_index)
+                        .ok_or_else(|| "Invalid slot index")?
+                        .replace(Slot {
+                            card,
+                            hints: Vec::new(),
+                        });
                 } else {
                     self.last_turn = Some(self.turn);
                 }
@@ -263,7 +273,7 @@ impl GameState {
                     .players
                     .get_mut(player_index)
                     .ok_or_else(|| "Invalid current player")?;
-                player.hand.remove(slot_index);
+                player.hand.get(slot_index).take();
             }
             GameEffect::AddToDiscrard(card) => {
                 self.discard_pile.push(card);
@@ -329,16 +339,19 @@ impl Card {
     }
 }
 
-
 pub fn new_standard_deck() -> Vec<Card> {
-    let mut deck : Vec<Card> = CardFace::iter().flat_map(|face| CardSuit::iter().flat_map(move |suit| {
-        let num = match face {
-            CardFace::One => 3,
-            CardFace::Two | CardFace::Three | CardFace::Four => 2,
-            CardFace::Five => 1,
-        };
-        vec![Card { suit, face }; num]
-    })).collect();
+    let mut deck: Vec<Card> = CardFace::iter()
+        .flat_map(|face| {
+            CardSuit::iter().flat_map(move |suit| {
+                let num = match face {
+                    CardFace::One => 3,
+                    CardFace::Two | CardFace::Three | CardFace::Four => 2,
+                    CardFace::Five => 1,
+                };
+                vec![Card { suit, face }; num]
+            })
+        })
+        .collect();
 
     for index in 0..deck.len() {
         let swap = rand::thread_rng().gen_range(index..deck.len());
@@ -346,7 +359,6 @@ pub fn new_standard_deck() -> Vec<Card> {
     }
     return deck;
 }
-
 
 pub fn new_ordered_deck() -> Vec<usize> {
     let standard_deck = new_standard_deck();

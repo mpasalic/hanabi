@@ -30,6 +30,7 @@ pub struct SlotIndex(pub usize);
 pub struct GameLog {
     pub actions: Vec<PlayerAction>,
     pub num_players: usize,
+    pub hand_size: usize,
 }
 
 pub struct GameState {
@@ -39,8 +40,8 @@ pub struct GameState {
     pub players: Vec<Player>,
     pub remaining_bomb_count: u8,
     pub remaining_hint_count: u8,
-    pub turn: u8, // todo maybe convert to player index
-    pub last_turn: Option<u8> // we end there
+    pub turn: u8,              // todo maybe convert to player index
+    pub last_turn: Option<u8>, // we end there
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -49,7 +50,6 @@ pub struct Card {
     pub suit: CardSuit,
     // hints: Vec<Hint>,
 }
-
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HintAction {
@@ -73,7 +73,7 @@ pub enum PlayedCardResult {
 
 #[derive(Debug)]
 pub enum GameEffect {
-    DrawCard(PlayerIndex),
+    DrawCard(PlayerIndex, SlotIndex),
     RemoveCard(PlayerIndex, SlotIndex),
     AddToDiscrard(Card),
     PlaceOnBoard(Card),
@@ -94,8 +94,8 @@ pub enum Hint {
 
 #[derive(Debug)]
 pub struct Slot {
-  pub card: usize,
-  pub hints: Vec<Hint>   
+    pub card: usize,
+    pub hints: Vec<Hint>,
 }
 
 #[derive(Debug)]
@@ -106,5 +106,5 @@ pub struct Player {
 #[derive(Debug)]
 pub enum GameOutcome {
     Win,
-    Fail {score: usize},
+    Fail { score: usize },
 }
