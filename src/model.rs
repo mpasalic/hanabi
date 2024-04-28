@@ -24,18 +24,24 @@ pub struct PlayerIndex(pub usize);
 #[derive(Debug, Copy, Clone)]
 pub struct FromPlayerIndex(pub usize);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct SlotIndex(pub usize);
 
+pub struct GameLog {
+    pub actions: Vec<PlayerAction>,
+    pub num_players: usize,
+    pub hand_size: usize,
+}
+
 pub struct GameState {
-    pub draw_pile: Vec<Card>, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
+    pub draw_pile: Vec<usize>, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
     pub discard_pile: Vec<Card>,
     pub players: Vec<Player>,
     pub remaining_bomb_count: u8,
     pub remaining_hint_count: u8,
-    pub turn: u8, // todo maybe convert to player index
-    pub last_turn: Option<u8> // we end there
+    pub turn: u8,              // todo maybe convert to player index
+    pub last_turn: Option<u8>, // we end there
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -45,17 +51,17 @@ pub struct Card {
     // hints: Vec<Hint>,
 }
 
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HintAction {
     SameSuit(CardSuit),
     SameFace(CardFace),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlayerAction {
-    PlayCard(SlotIndex),
-    DiscardCard(SlotIndex),
-    GiveHint(PlayerIndex, HintAction),
+    PlayCard(SlotIndex, Card),
+    DiscardCard(SlotIndex, Card),
+    GiveHint(PlayerIndex, Vec<SlotIndex>, HintAction),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -67,7 +73,7 @@ pub enum PlayedCardResult {
 
 #[derive(Debug)]
 pub enum GameEffect {
-    DrawCard(PlayerIndex),
+    DrawCard(PlayerIndex, SlotIndex),
     RemoveCard(PlayerIndex, SlotIndex),
     AddToDiscrard(Card),
     PlaceOnBoard(Card),
@@ -88,8 +94,8 @@ pub enum Hint {
 
 #[derive(Debug)]
 pub struct Slot {
-  pub card: Card,
-  pub hints: Vec<Hint>   
+    pub card: usize,
+    pub hints: Vec<Hint>,
 }
 
 #[derive(Debug)]
@@ -100,5 +106,5 @@ pub struct Player {
 #[derive(Debug)]
 pub enum GameOutcome {
     Win,
-    Fail {score: usize},
+    Fail { score: usize },
 }

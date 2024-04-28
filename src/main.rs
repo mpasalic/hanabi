@@ -1,4 +1,5 @@
 use colored::Colorize;
+use itertools::Itertools;
 use model::Card;
 use model::CardFace;
 use model::CardSuit;
@@ -9,16 +10,15 @@ use model::Player;
 use model::PlayerAction;
 use model::PlayerIndex;
 use model::Slot;
-use strum::IntoEnumIterator;
-use std::collections::HashSet;
 use std::fmt;
 use std::io;
+use strum::IntoEnumIterator;
 
+use crate::model::GameLog;
 use crate::model::GameOutcome;
 use crate::model::SlotIndex;
-mod model;
 mod logic;
-
+mod model;
 
 trait CardKey {
     fn key(&self) -> &str;
@@ -100,6 +100,13 @@ impl fmt::Display for CardFace {
     }
 }
 
+// TODO Simon: To finish new formatter
+// impl fmt::Display for Card {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{}", self.suit.color_string( self.suit.to_string() + self.face.key()))
+//     }
+// }
+
 impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.suit.color_string(self.face.key().to_string()))
@@ -114,95 +121,79 @@ impl fmt::Display for Player {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for slot in self.hand.iter() {
             if let Some(Slot { card, hints: _ }) = slot {
-                fmt_card(*card, f)?;
+                // TODO fmt_card(*card, f)?;
+                write!(f, "[{}]", *card)?;
             }
-            
         }
         return fmt::Result::Ok(());
         //write!(f, "[{:?},{:?},{:?},{:?},{:?}]", self.hand[0], self.hand[1], self.hand[2], self.hand[3], self.hand[4])
     }
 }
 
+// TODO Simon: To finish new formatter
 impl Player {
-
     /**
-     * Your hand [hints]: [? ![Three, Five, Two][Green]] [5] [?2 ![Green]] [3] [?3 ![Green]]
-     *
      * --new version--
      *
-     * Card 1: RGYWB 1 2 3 4 5
-     * Card 1: RYWB 1 4 3 4
-     * Card 2: G5
-     * Card 3:
-     * Card 4: G3
-     * Card 5:
+     * Card 1: R + 1 + Not(Y, 2, B)
+     * Card 1: Not(Y, 2, B)
+     * Card 2: R + 1
+     * Card 3: done
+     * Card 4: no hints
      *
      */
 
-    fn hints_to_string(&self) {
-        let mut counter = 0;
-        let slots = self.hand.iter().filter_map(|slot| slot.as_ref());
+    fn hints_to_string(&self) -> String {
+        let mut output = String::new();
+        for (pos, slot) in self.hand.iter().enumerate() {
+            output.push_str(format!("Card {}: ", pos + 1).as_str());
 
-        for slot in slots {
+            let Some(slot) = slot else {
+                output.push_str("done\n");
+                continue;
+            };
+
             let Slot { card: _, hints } = slot;
-            print!("Card {}: ", counter);
-            let mut face_hints_set: HashSet<CardFace> = HashSet::new();
-            let mut suit_hints_set: HashSet<CardSuit> = HashSet::new();
 
-            for face in CardFace::iter() {
-                if !hints.iter().any(|hint| match hint {
-                    Hint::IsFace(hint_face) => *hint_face != face,
-                    Hint::IsNotFace(not_face) => *not_face == face,
-                    _ => false,
-                }) {
-                    face_hints_set.insert(face.clone());
-                }
-            }
-
-            for suit in CardSuit::iter() {
-                if !hints.iter().any(|hint| match hint {
-                    Hint::IsSuit(suit_hint) => *suit_hint != suit,
-                    Hint::IsNotSuit(not_suit) => *not_suit == suit,
-                    _ => false,
-                }) {
-                    suit_hints_set.insert(suit.clone());
-                }
-            }
-
-            let face_hints_output: String = CardFace::iter()
-                .into_iter()
-                .map(|face| {
-                    if face_hints_set.contains(&face) {
-                        format!("{}", face.color())
-                    } else {
-                        format!("{}", face.inactive_color())
-                    }
+            let positive = hints
+                .iter()
+                .filter_map(|h| match h {
+                    Hint::IsSuit(suit) => Some(format!("{}", suit)),
+                    Hint::IsFace(face) => Some(format!("{}", face)),
+                    _ => None,
                 })
-                .collect();
+                .join(" + ");
 
-            let suit_hints_output: String = CardSuit::iter()
-                .into_iter()
-                .map(|suit| {
-                    if suit_hints_set.contains(&suit) {
-                        format!("{}", suit.color())
-                    } else {
-                        format!("{}", suit.inactive_color())
-                    }
+            let negative = hints
+                .iter()
+                .filter_map(|h| match h {
+                    Hint::IsNotSuit(suit) => Some(format!("{}", suit)),
+                    Hint::IsNotFace(face) => Some(format!("{}", face)),
+                    _ => None,
                 })
-                .collect();
+                .join(", ");
 
-            println!("{}\t{}", suit_hints_output, face_hints_output);
-            counter = counter + 1;
+            let negative = format!("Not({negative})", negative = negative);
+
+            let to_print = match (positive.as_str(), negative.as_str()) {
+                ("", "Not()") => "no hints".to_string(),
+                ("", negative) => negative.to_string(),
+                (positive, "Not()") => positive.to_string(),
+                (positive, negative) => format!("{} + {}", positive, negative),
+            };
+            output.push_str(to_print.as_str());
+            output.push_str("\n")
         }
+
+        output
     }
 }
 
 impl fmt::Display for PlayerIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PlayerIndex(player_index) => write!(f, "P{}", player_index)
+            PlayerIndex(player_index) => write!(f, "P{}", player_index),
         }
-        
     }
 }
 
@@ -238,27 +229,70 @@ impl fmt::Display for GameState {
 
         write!(f, " draw={}", self.draw_pile.len()).expect("format");
 
+        write!(f, " }}\n").expect("format");
 
-        write!(f, " }}").expect("format");
+        self.players.iter().enumerate().for_each(|(index, player)| {
+            write!(f, "\nPlayer {}", index + 1).expect("format");
+            match self.current_player_index() {
+                PlayerIndex(player_index) if player_index == index => {
+                    write!(f, " <- current turn").expect("format");
+                }
+                _ => {}
+            }
+            write!(f, "\n{}", player.hints_to_string()).expect("format");
+        });
+
+        // let hint_output: Vec<Vec<String>> = self
+        //     .players
+        //     .iter()
+        //     .map(|player| {
+        //         player.hints_to_string()
+        //         // .split("\n")
+        //         // .map(|s| String::from(s))
+        //         // .collect()
+        //     })
+        //     .collect();
+
+        // // write!(f, "{:?}", hint_output)?;
+
+        // let max_rows = hint_output.iter().map(|row| row.len()).max().unwrap();
+
+        // write!(f, "\n")?;
+        // for row_index in 0..hint_output.len() {
+        //     if row_index == self.current_player_index().0 {
+        //         write!(f, "Player {} (turn)\t\t", row_index + 1)?;
+        //     } else {
+        //         write!(f, "Player {}\t\t", row_index + 1)?;
+        //     }
+        // }
+        // write!(f, "\n")?;
+        // for row_index in 0..max_rows {
+        //     // write!(f, "Card {}\t\t", row_index + 1)?;
+        //     for hint_output_line in hint_output.iter() {
+        //         if let Some(hint_output_line) = hint_output_line.get(row_index) {
+        //             write!(f, "{}\t", hint_output_line)?;
+        //         }
+        //     }
+        //     write!(f, "\n")?;
+        // }
+
         return fmt::Result::Ok(());
     }
 }
 
 fn run_hanabi() -> Result<GameOutcome, String> {
-    let num_players: usize = 5;
+    let num_players: usize = 4;
+    let hand_size: usize = 4;
 
-    let mut game = GameState::start(num_players)?;
+    let mut game_log = GameLog::new(num_players, hand_size);
+
     println!("> Starting Game!");
-    // println!(
-    //     "> P0:{{{}}} P1:{{{}}} P2:{{{}}} P3:{{{}}} P4:{{{}}}",
-    //     players[0], players[1], players[2], players[3], players[4]
-    // );
 
-    //let mut last_round = None;
+    let mut game_state = game_log.generate_state()?;
 
-    let mut game_outcome : Option<GameOutcome> = None;
+    while let None = game_state.check_game_outcome() {
+        let game = game_log.generate_state()?;
 
-    while let None = game_outcome {
         println!(
             "############ ROUND #{} PLAYER #{} ############",
             game.current_round(),
@@ -266,56 +300,111 @@ fn run_hanabi() -> Result<GameOutcome, String> {
         );
 
         loop {
-            let action_effects = game.play(player_turn(&game)?);
-            match action_effects {
-                Ok(effects) => {
-                    game.run_effects(effects)?;
+            let player_action = player_turn(&game)?;
+            match player_action {
+                Command::GameMove(player_action) => {
+                    game_log.log(player_action);
+                }
+                Command::Undo => {
+                    game_log.undo();
+                }
+                Command::Quit => {
+                    return Ok(GameOutcome::Fail { score: 0 });
+                }
+            }
+
+            let new_game_state = game_log.generate_state();
+            match new_game_state {
+                Ok(new_game_state) => {
+                    game_state = new_game_state;
                     break;
                 }
-                Err(msg) => println!("Disallowed action: {}", msg)
+                Err(msg) => println!("Disallowed action: {}", msg),
             }
-        } 
-        game_outcome = game.check_game_outcome();
+        }
     }
 
-    match game_outcome {
+    match game_state.check_game_outcome() {
         Some(game_outcome) => Ok(game_outcome),
-        None => Err("Error".to_string())
+        None => Err("Error".to_string()),
     }
-
 }
 
-fn player_turn(game: &GameState) -> Result<PlayerAction, String> {
-    let current_index = game.current_player_index();
-    let current_player = game.current_player().ok_or_else(|| "No current player")?;
+enum Command {
+    GameMove(PlayerAction),
+    Undo,
+    Quit,
+}
+
+fn player_turn(game: &GameState) -> Result<Command, String> {
     println!("> Game State: {} ", game);
 
-    print!("> Players: ");
-    game.players.iter().enumerate().for_each(|(player_index, player)| {
-        match (player_index, current_index) {
-            (player_index, PlayerIndex(current_index)) if player_index != current_index => print!("P{}:{{{}}} ", player_index, player),
-            (_,_) => {},
-        }
-        
-    });
-
-    println!("");
-
-    println!("> Your hand [hints]: ");
-    current_player.hints_to_string();
-
     loop {
-        println!("> What is your move? [play: p (card_index), discard: d (card_index), hint: h (player_index) (suit:RGYWB|face:12345)]");
+        println!("> What is your move? [play: p (slot) (suit)(face), discard: d (slot) (suit)(face), hint: h (player_index) (suit|face) (slots), undo: u, quit: q ] (suits = rgywb, faces = 12345)");
         let player_action = get_player_input();
         match player_action {
             Ok(player_action) => return Ok(player_action),
             Err(msg) => println!("Failed to parsse action: {}", msg),
         };
     }
-
 }
 
-fn get_player_input() -> Result<PlayerAction, String> {
+fn parse_card_input(card_input: &str) -> Result<Card, String> {
+    let card_input = card_input.trim().to_lowercase();
+    let card_input = card_input.chars().into_iter().collect::<Vec<char>>();
+
+    fn match_card_suit(x: &char) -> Result<CardSuit, String> {
+        match *x {
+            'r' => Ok(CardSuit::Red),
+            'g' => Ok(CardSuit::Green),
+            'y' => Ok(CardSuit::Yellow),
+            'w' => Ok(CardSuit::White),
+            'b' => Ok(CardSuit::Blue),
+            _ => Err("invalid card suit".to_string()),
+        }
+    }
+
+    fn match_card_num(x: &char) -> Result<CardFace, String> {
+        match *x {
+            '1' => Ok(CardFace::One),
+            '2' => Ok(CardFace::Two),
+            '3' => Ok(CardFace::Three),
+            '4' => Ok(CardFace::Four),
+            '5' => Ok(CardFace::Five),
+            _ => Err("invalid card number".to_string()),
+        }
+    }
+
+    match card_input[..] {
+        [suit, face] => match (match_card_suit(&suit), match_card_num(&face)) {
+            (Ok(suit), Ok(face)) => Ok(Card { face, suit }),
+            (_, _) => Err("invalid card number format".to_string()),
+        },
+        _ => Err("invalid action".to_string()),
+    }
+}
+
+fn parse_player_index(player_index_input: &str) -> Result<PlayerIndex, String> {
+    let player_index = player_index_input.trim().parse::<usize>();
+    Ok(PlayerIndex(
+        player_index
+            .map_err(|_err| "Cannot parse player index")?
+            .checked_sub(1)
+            .ok_or_else(|| "Cannot parse player index")?,
+    ))
+}
+
+fn parse_slot_index(slot_index_input: &str) -> Result<SlotIndex, String> {
+    let slot_index = slot_index_input.trim().parse::<usize>();
+    Ok(SlotIndex(
+        slot_index
+            .map_err(|_err| "Cannot parse card index")?
+            .checked_sub(1)
+            .ok_or_else(|| "Cannot parse card index")?,
+    ))
+}
+
+fn get_player_input() -> Result<Command, String> {
     let mut action_input = String::new();
 
     io::stdin()
@@ -326,37 +415,48 @@ fn get_player_input() -> Result<PlayerAction, String> {
     let action_input = action_input.split(" ").collect::<Vec<&str>>();
 
     match action_input[..] {
-        ["p", card_index] => match card_index.trim().parse() {
-            Ok(card_index) => {
-                Ok(PlayerAction::PlayCard(SlotIndex(card_index)))
-            }
-            Err(_) => Err("invalid card number format".to_string()),
-        },
-        ["d", card_index] => match card_index.trim().parse() {
-            Ok(card_index) => {
-                Ok(PlayerAction::DiscardCard(SlotIndex(card_index)))
-            }
-            Err(_) => Err("Invalid card number format".to_string()),
-        },
-        ["h", player_index, suit_or_face] => match player_index.trim().parse() {
-            Ok(player_index) => {
-                    let hint = match suit_or_face {
-                        "r" => HintAction::SameSuit(CardSuit::Red),
-                        "g" => HintAction::SameSuit(CardSuit::Green),
-                        "y" => HintAction::SameSuit(CardSuit::Yellow),
-                        "w" => HintAction::SameSuit(CardSuit::White),
-                        "b" => HintAction::SameSuit(CardSuit::Blue),
-                        "1" => HintAction::SameFace(CardFace::One),
-                        "2" => HintAction::SameFace(CardFace::Two),
-                        "3" => HintAction::SameFace(CardFace::Three),
-                        "4" => HintAction::SameFace(CardFace::Four),
-                        "5" => HintAction::SameFace(CardFace::Five),
-                        _ => return Err("invalid suit or face".to_string()),
-                    };
-                    Ok(PlayerAction::GiveHint(PlayerIndex(player_index), hint))
-            }
-            Err(_) => Err("Bad player number format".to_string()),
-        },
+        ["q"] => Ok(Command::Quit),
+        ["u"] => Ok(Command::Undo),
+        ["p", card_index, card_input] => {
+            let card = parse_card_input(card_input)?;
+            Ok(Command::GameMove(PlayerAction::PlayCard(
+                parse_slot_index(card_index)?,
+                card,
+            )))
+        }
+        ["d", card_index, card_input] => {
+            let card = parse_card_input(card_input)?;
+            Ok(Command::GameMove(PlayerAction::DiscardCard(
+                parse_slot_index(card_index)?,
+                card,
+            )))
+        }
+        ["h", player_index, suit_or_face, rest] => {
+            let hint = match suit_or_face {
+                "r" => HintAction::SameSuit(CardSuit::Red),
+                "g" => HintAction::SameSuit(CardSuit::Green),
+                "y" => HintAction::SameSuit(CardSuit::Yellow),
+                "w" => HintAction::SameSuit(CardSuit::White),
+                "b" => HintAction::SameSuit(CardSuit::Blue),
+                "1" => HintAction::SameFace(CardFace::One),
+                "2" => HintAction::SameFace(CardFace::Two),
+                "3" => HintAction::SameFace(CardFace::Three),
+                "4" => HintAction::SameFace(CardFace::Four),
+                "5" => HintAction::SameFace(CardFace::Five),
+                _ => return Err("invalid suit or face".to_string()),
+            };
+            let slots: Vec<SlotIndex> = rest
+                .chars()
+                .into_iter()
+                .filter_map(|c| parse_slot_index(c.to_string().as_str()).ok())
+                .collect();
+
+            Ok(Command::GameMove(PlayerAction::GiveHint(
+                parse_player_index(player_index)?,
+                slots,
+                hint,
+            )))
+        }
         _ => Err("invalid action".to_string()),
     }
 }
@@ -372,4 +472,3 @@ fn main() {
         Err(msg) => println!("Error: {}", msg),
     }
 }
-
