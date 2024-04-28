@@ -10,7 +10,6 @@ use model::Player;
 use model::PlayerAction;
 use model::PlayerIndex;
 use model::Slot;
-use std::collections::HashSet;
 use std::fmt;
 use std::io;
 use strum::IntoEnumIterator;
@@ -230,10 +229,17 @@ impl fmt::Display for GameState {
 
         write!(f, " draw={}", self.draw_pile.len()).expect("format");
 
-        write!(f, " }}").expect("format");
+        write!(f, " }}\n").expect("format");
 
         self.players.iter().enumerate().for_each(|(index, player)| {
-            write!(f, "\nPlayer {}\n{}\n", index + 1, player.hints_to_string()).expect("format");
+            write!(f, "\nPlayer {}", index + 1).expect("format");
+            match self.current_player_index() {
+                PlayerIndex(player_index) if player_index == index => {
+                    write!(f, " <- current turn").expect("format");
+                }
+                _ => {}
+            }
+            write!(f, "\n{}", player.hints_to_string()).expect("format");
         });
 
         // let hint_output: Vec<Vec<String>> = self
@@ -442,11 +448,7 @@ fn get_player_input() -> Result<Command, String> {
             let slots: Vec<SlotIndex> = rest
                 .chars()
                 .into_iter()
-                .enumerate()
-                .filter_map(|(index, value)| match value {
-                    '1' => Some(SlotIndex(index)),
-                    _ => None,
-                })
+                .filter_map(|c| parse_slot_index(c.to_string().as_str()).ok())
                 .collect();
 
             Ok(Command::GameMove(PlayerAction::GiveHint(
