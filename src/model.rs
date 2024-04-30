@@ -1,7 +1,7 @@
 use enum_map::Enum;
 use strum_macros::EnumIter;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Enum, EnumIter)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Enum, EnumIter)]
 pub enum CardFace {
     One,
     Two,
@@ -34,8 +34,29 @@ pub struct GameState {
     pub players: Vec<Player>,
     pub remaining_bomb_count: u8,
     pub remaining_hint_count: u8,
-    pub turn: u8, // todo maybe convert to player index
-    pub last_turn: Option<u8> // we end there
+    pub turn: u8,              // todo maybe convert to player index
+    pub last_turn: Option<u8>, // we end there
+}
+
+pub struct ClientGameState {
+    pub draw_pile_count: u8, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
+    pub played_cards: Vec<Card>, // TODO: organize by suit sets
+    pub discard_pile: Vec<Card>,
+    pub players: Vec<ClientPlayerView>,
+    pub remaining_bomb_count: u8,
+    pub remaining_hint_count: u8,
+    pub turn: u8,              // todo maybe convert to player index
+    pub last_turn: Option<u8>, // we end there
+}
+
+// #[derive(Clone)]
+pub struct ClientHiddenCard {
+    pub hints: Vec<Hint>,
+}
+
+pub enum ClientPlayerView {
+    Me { hand: Vec<Option<ClientHiddenCard>> },
+    Teammate(Player),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -44,7 +65,6 @@ pub struct Card {
     pub suit: CardSuit,
     // hints: Vec<Hint>,
 }
-
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HintAction {
@@ -78,7 +98,7 @@ pub enum GameEffect {
     NextTurn,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Hint {
     IsSuit(CardSuit),
     IsFace(CardFace),
@@ -88,8 +108,8 @@ pub enum Hint {
 
 #[derive(Debug)]
 pub struct Slot {
-  pub card: Card,
-  pub hints: Vec<Hint>   
+    pub card: Card,
+    pub hints: Vec<Hint>,
 }
 
 #[derive(Debug)]
@@ -100,5 +120,5 @@ pub struct Player {
 #[derive(Debug)]
 pub enum GameOutcome {
     Win,
-    Fail {score: usize},
+    Fail { score: usize },
 }
