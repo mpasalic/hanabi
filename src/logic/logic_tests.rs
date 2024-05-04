@@ -1,4 +1,3 @@
-
 #[cfg(test)]
 use super::*;
 
@@ -7,36 +6,31 @@ fn standard_deck_contains_all_cards() {
     let deck = new_standard_deck();
 
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.face == CardFace::One)
             .count(),
         3 * 5
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.face == CardFace::Two)
             .count(),
         2 * 5
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.face == CardFace::Three)
             .count(),
         2 * 5
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.face == CardFace::Four)
             .count(),
         2 * 5
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.face == CardFace::Five)
             .count(),
         1 * 5
@@ -45,36 +39,31 @@ fn standard_deck_contains_all_cards() {
     const NUM_CARDS_PER_SUIT: usize = 3 + 2 + 2 + 2 + 1;
 
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.suit == CardSuit::Red)
             .count(),
         NUM_CARDS_PER_SUIT
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.suit == CardSuit::Blue)
             .count(),
         NUM_CARDS_PER_SUIT
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.suit == CardSuit::Green)
             .count(),
         NUM_CARDS_PER_SUIT
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.suit == CardSuit::White)
             .count(),
         NUM_CARDS_PER_SUIT
     );
     assert_eq!(
-        deck
-            .iter()
+        deck.iter()
             .filter(|card| card.suit == CardSuit::Yellow)
             .count(),
         NUM_CARDS_PER_SUIT
@@ -89,7 +78,6 @@ fn standard_deck_contains_all_cards() {
     );
 }
 
-
 #[test]
 fn initial_game_state() {
     let game = GameState::start(5);
@@ -103,10 +91,14 @@ fn initial_game_state() {
             assert_eq!(game.draw_pile.len(), standard_deck_size - 5 * 5);
             assert_eq!(game.turn, 0, "turn wrongly incremented");
             assert_eq!(game.last_turn, None, "last turn already marked");
-            assert_eq!(game.current_player_index(), PlayerIndex(0), "wrong starting player");
+            assert_eq!(
+                game.current_player_index(),
+                PlayerIndex(0),
+                "wrong starting player"
+            );
             assert_eq!(game.remaining_bomb_count, 3, "wrong bomb count");
             assert_eq!(game.remaining_hint_count, 10, "wrong hint count");
-        },
+        }
         Err(_) => assert!(false, "game failed to be created"),
     }
 }

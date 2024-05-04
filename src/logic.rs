@@ -3,9 +3,9 @@ use strum::IntoEnumIterator;
 mod logic_tests;
 
 use crate::model::{
-        Card, CardFace, GameEffect, GameOutcome, GameState, Hint, HintAction, PlayedCardResult,
-        Player, PlayerAction, PlayerIndex, Slot, SlotIndex, CardSuit,
-    };
+    Card, CardFace, CardSuit, GameEffect, GameOutcome, GameState, Hint, HintAction,
+    PlayedCardResult, Player, PlayerAction, PlayerIndex, Slot, SlotIndex,
+};
 
 impl GameState {
     pub fn start(num_players: usize) -> Result<GameState, String> {
@@ -14,7 +14,10 @@ impl GameState {
             discard_pile: Vec::new(),
             last_turn: None,
             played_cards: Vec::new(),
-            players: (0..num_players).into_iter().map(|_index| Player { hand: Vec::new()}).collect(),
+            players: (0..num_players)
+                .into_iter()
+                .map(|_index| Player { hand: Vec::new() })
+                .collect(),
             remaining_bomb_count: 3,
             remaining_hint_count: 10,
             turn: 0,
@@ -24,7 +27,8 @@ impl GameState {
         let init_effects = (0..5)
             .flat_map(|_index| {
                 (0..num_players).map(|player_index| DrawCard(PlayerIndex(player_index)))
-            }).collect();
+            })
+            .collect();
         game.run_effects(init_effects)?;
         return Ok(game);
     }
@@ -315,14 +319,18 @@ impl Card {
 }
 
 pub fn new_standard_deck() -> Vec<Card> {
-    let mut deck : Vec<Card> = CardFace::iter().flat_map(|face| CardSuit::iter().flat_map(move |suit| {
-        let num = match face {
-            CardFace::One => 3,
-            CardFace::Two | CardFace::Three | CardFace::Four => 2,
-            CardFace::Five => 1,
-        };
-        vec![Card { suit, face }; num]
-    })).collect();
+    let mut deck: Vec<Card> = CardFace::iter()
+        .flat_map(|face| {
+            CardSuit::iter().flat_map(move |suit| {
+                let num = match face {
+                    CardFace::One => 3,
+                    CardFace::Two | CardFace::Three | CardFace::Four => 2,
+                    CardFace::Five => 1,
+                };
+                vec![Card { suit, face }; num]
+            })
+        })
+        .collect();
 
     for index in 0..deck.len() {
         let swap = rand::thread_rng().gen_range(index..deck.len());
