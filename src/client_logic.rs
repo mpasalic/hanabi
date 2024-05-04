@@ -1,6 +1,6 @@
 use crate::model::{CardFace, CardSuit};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum HintState {
     ChoosingPlayer,
     ChoosingHintType { player_index: u8 },
@@ -12,12 +12,13 @@ pub enum HintState {
     ChoosingFace { player_index: u8 },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum HintBuilderType {
     Suite,
     Face,
 }
 
+#[derive(Debug)]
 pub enum AppAction {
     StartHint,
     Undo,
@@ -27,17 +28,18 @@ pub enum AppAction {
     SelectFace(CardFace),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum CommandBuilder {
     Empty,
     Hint(HintState),
 }
 
-struct App {
-    current_command: CommandBuilder,
+#[derive(Debug, Clone)]
+pub struct CommandState {
+    pub current_command: CommandBuilder,
 }
 
-fn process_app_action(state: App, action: AppAction) -> App {
+pub fn process_app_action(state: CommandState, action: AppAction) -> CommandState {
     use AppAction as A;
     use CommandBuilder as C;
     let builder = match (state.current_command, action) {
@@ -78,7 +80,7 @@ fn process_app_action(state: App, action: AppAction) -> App {
         (builder, _) => builder,
     };
 
-    App {
+    CommandState {
         current_command: builder,
     }
 }

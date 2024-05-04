@@ -38,6 +38,7 @@ pub struct GameState {
     pub last_turn: Option<u8>, // we end there
 }
 
+#[derive(Debug)]
 pub struct ClientGameState {
     pub draw_pile_count: u8, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
@@ -48,12 +49,12 @@ pub struct ClientGameState {
     pub turn: u8,              // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
 }
-
-// #[derive(Clone)]
+#[derive(Debug)]
 pub struct ClientHiddenCard {
     pub hints: Vec<Hint>,
 }
 
+#[derive(Debug)]
 pub enum ClientPlayerView {
     Me { hand: Vec<Option<ClientHiddenCard>> },
     Teammate(Player),
