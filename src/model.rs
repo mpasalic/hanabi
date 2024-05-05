@@ -24,9 +24,20 @@ pub struct PlayerIndex(pub usize);
 #[derive(Debug, Copy, Clone)]
 pub struct FromPlayerIndex(pub usize);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct SlotIndex(pub usize);
 
+#[derive(Debug, Clone)]
+pub struct GameConfig {
+    pub num_players: usize,
+    pub hand_size: usize,
+    pub num_fuses: u8,
+    pub num_hints: u8,
+    pub starting_player: PlayerIndex,
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct GameState {
     pub draw_pile: Vec<Card>, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
@@ -36,9 +47,10 @@ pub struct GameState {
     pub remaining_hint_count: u8,
     pub turn: u8,              // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
+    pub outcome: Option<GameOutcome>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClientGameState {
     pub draw_pile_count: u8, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
@@ -46,18 +58,22 @@ pub struct ClientGameState {
     pub players: Vec<ClientPlayerView>,
     pub remaining_bomb_count: u8,
     pub remaining_hint_count: u8,
+    pub current_player_index: PlayerIndex,
     pub turn: u8,              // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
-}
-#[derive(Debug)]
-pub struct ClientHiddenCard {
-    pub hints: Vec<Hint>,
+    pub outcome: Option<GameOutcome>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct ClientVisibleCard {
+    pub hints: Vec<Hint>,
+    pub card: Card,
+}
+
+#[derive(Debug, Clone)]
 pub enum ClientPlayerView {
-    Me { hand: Vec<Option<ClientHiddenCard>> },
-    Teammate(Player),
+    Me { hand: Vec<Option<HiddenSlot>> },
+    Teammate { hand: Vec<Option<Slot>> },
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -73,6 +89,7 @@ pub enum HintAction {
     SameFace(CardFace),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlayerAction {
     PlayCard(SlotIndex),
     DiscardCard(SlotIndex),
@@ -86,9 +103,9 @@ pub enum PlayedCardResult {
     Rejected,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GameEffect {
-    DrawCard(PlayerIndex),
+    DrawCard(PlayerIndex, SlotIndex),
     RemoveCard(PlayerIndex, SlotIndex),
     AddToDiscrard(Card),
     PlaceOnBoard(Card),
@@ -107,18 +124,23 @@ pub enum Hint {
     IsNotFace(CardFace),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Slot {
     pub card: Card,
     pub hints: Vec<Hint>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct HiddenSlot {
+    pub hints: Vec<Hint>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Player {
     pub hand: Vec<Option<Slot>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GameOutcome {
     Win,
     Fail { score: usize },

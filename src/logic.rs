@@ -1,32 +1,40 @@
+use itertools::Itertools;
 use rand::Rng;
 use strum::IntoEnumIterator;
 mod logic_tests;
 
 use crate::model::{
-    Card, CardFace, CardSuit, GameEffect, GameOutcome, GameState, Hint, HintAction,
+    Card, CardFace, CardSuit, GameConfig, GameEffect, GameOutcome, GameState, Hint, HintAction,
     PlayedCardResult, Player, PlayerAction, PlayerIndex, Slot, SlotIndex,
 };
+use rand::prelude::*;
+use rand_chacha::ChaCha8Rng;
 
 impl GameState {
-    pub fn start(num_players: usize) -> Result<GameState, String> {
+    pub fn start(config: &GameConfig) -> Result<GameState, String> {
         let mut game = GameState {
             draw_pile: new_standard_deck(),
             discard_pile: Vec::new(),
             last_turn: None,
             played_cards: Vec::new(),
-            players: (0..num_players)
+            players: (0..config.num_players)
                 .into_iter()
-                .map(|_index| Player { hand: Vec::new() })
+                .map(|_index| Player {
+                    hand: (0..config.hand_size).map(|_slot_index| None).collect_vec(),
+                })
                 .collect(),
-            remaining_bomb_count: 3,
-            remaining_hint_count: 10,
-            turn: 0,
+            remaining_bomb_count: config.num_fuses,
+            remaining_hint_count: config.num_hints,
+            turn: config.starting_player.0 as u8,
+            outcome: None,
         };
 
         use GameEffect::*;
-        let init_effects = (0..5)
-            .flat_map(|_index| {
-                (0..num_players).map(|player_index| DrawCard(PlayerIndex(player_index)))
+        let init_effects = (0..4)
+            .flat_map(move |slot_index| {
+                (0..config.num_players).map(move |player_index| {
+                    DrawCard(PlayerIndex(player_index), SlotIndex(slot_index))
+                })
             })
             .collect();
         game.run_effects(init_effects)?;
@@ -35,9 +43,12 @@ impl GameState {
 
     // precondition: assumes the the action was taken by the current player
     pub fn play(&self, action: PlayerAction) -> Result<Vec<GameEffect>, String> {
+        if let Some(outcome) = &self.outcome {
+            return Err("Game is already over".to_string());
+        }
+
         use GameEffect::*;
-        let player_index = self.turn as usize % self.players.len();
-        let player_index = PlayerIndex(player_index);
+        let player_index = PlayerIndex(self.turn as usize % self.players.len());
         let current_player = self
             .players
             .get(self.turn as usize % self.players.len())
@@ -57,7 +68,7 @@ impl GameState {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
                             PlaceOnBoard(slot.card),
-                            DrawCard(player_index),
+                            DrawCard(player_index, SlotIndex(index)),
                             NextTurn,
                         ]);
                     }
@@ -65,7 +76,7 @@ impl GameState {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
                             PlaceOnBoard(slot.card),
-                            DrawCard(player_index),
+                            DrawCard(player_index, SlotIndex(index)),
                             IncHint,
                             NextTurn,
                         ]);
@@ -73,7 +84,8 @@ impl GameState {
                     PlayedCardResult::Rejected => {
                         return Ok(vec![
                             RemoveCard(player_index, SlotIndex(index)),
-                            DrawCard(player_index),
+                            AddToDiscrard(slot.card),
+                            DrawCard(player_index, SlotIndex(index)),
                             BurnFuse,
                             NextTurn,
                         ]);
@@ -90,7 +102,7 @@ impl GameState {
                 return Ok(vec![
                     RemoveCard(player_index, SlotIndex(index)),
                     AddToDiscrard(slot.card),
-                    DrawCard(player_index),
+                    DrawCard(player_index, SlotIndex(index)),
                     IncHint,
                     NextTurn,
                 ]);
@@ -106,6 +118,7 @@ impl GameState {
                     .players
                     .get(hinted_player_index)
                     .ok_or_else(|| "Invalid player index".to_string())?;
+
                 let hints: Vec<GameEffect> = hinted_player
                     .hand
                     .iter()
@@ -229,9 +242,9 @@ impl GameState {
         Ok(())
     }
 
-    pub fn run_effect(&mut self, effect: GameEffect) -> Result<Option<GameOutcome>, String> {
+    pub fn run_effect(&mut self, effect: GameEffect) -> Result<(), String> {
         match effect {
-            GameEffect::DrawCard(PlayerIndex(player_index)) => {
+            GameEffect::DrawCard(PlayerIndex(player_index), SlotIndex(slot_index)) => {
                 let player = self
                     .players
                     .get_mut(player_index)
@@ -239,10 +252,14 @@ impl GameState {
                 let drawed_card = self.draw_pile.pop();
 
                 if let Some(card) = drawed_card {
-                    player.hand.push(Some(Slot {
-                        card,
-                        hints: Vec::new(),
-                    }));
+                    player
+                        .hand
+                        .get_mut(slot_index)
+                        .ok_or_else(|| "Invalid slot index")?
+                        .replace(Slot {
+                            card: card,
+                            hints: Vec::new(),
+                        });
                 } else {
                     self.last_turn = Some(self.turn);
                 }
@@ -252,7 +269,7 @@ impl GameState {
                     .players
                     .get_mut(player_index)
                     .ok_or_else(|| "Invalid current player")?;
-                player.hand.remove(slot_index);
+                player.hand.get(slot_index).take();
             }
             GameEffect::AddToDiscrard(card) => {
                 self.discard_pile.push(card);
@@ -286,7 +303,10 @@ impl GameState {
                 self.turn = self.turn + 1;
             }
         }
-        return Ok(self.check_game_outcome());
+
+        self.outcome = self.check_game_outcome();
+
+        return Ok(());
     }
 }
 
@@ -316,6 +336,18 @@ impl Card {
     fn is_final_set_card(&self) -> bool {
         self.face == CardFace::Five
     }
+}
+
+pub fn num_cards() -> i32 {
+    CardFace::iter()
+        .flat_map(|face| {
+            CardSuit::iter().map(move |_suit| match face {
+                CardFace::One => 3,
+                CardFace::Two | CardFace::Three | CardFace::Four => 2,
+                CardFace::Five => 1,
+            })
+        })
+        .sum()
 }
 
 pub fn new_standard_deck() -> Vec<Card> {

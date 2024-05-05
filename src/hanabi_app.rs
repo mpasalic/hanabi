@@ -1,16 +1,14 @@
-use crate::{
-    client_logic::CommandState,
-    model::{Card, CardFace, CardSuit, Hint, Player, Slot},
-};
+use crate::model::*;
 use crossterm::{
     event,
     event::{Event, KeyCode},
 };
 use ratatui::{style::Stylize, Frame, Terminal};
-use std::{ops::ControlFlow, time::Duration};
+use std::{char::from_digit, iter, ops::ControlFlow, time::Duration};
+use tui_big_text::{BigText, PixelSize};
 
 use crate::{
-    model::{ClientGameState, ClientHiddenCard, ClientPlayerView},
+    model::{ClientGameState, ClientPlayerView},
     BoxedResult,
 };
 
@@ -49,6 +47,8 @@ impl CardKey for CardFace {
         }
     }
 }
+
+static SELECTION_COLOR: Color = Color::Rgb(117, 158, 179);
 
 // #[derive(Debug, Default)]
 // struct StatefulList {
@@ -102,246 +102,27 @@ impl CardKey for CardFace {
 //     }
 // }
 
-#[derive(Debug)]
 pub struct HanabiApp {
     exit: bool,
     command: CommandState,
     // menu_options: StatefulList,
     game_state: ClientGameState,
+    game_log: GameLog,
 }
 
 impl HanabiApp {
-    pub fn new() -> Self {
-        let game_state = ClientGameState {
-            draw_pile_count: 25,
-            // played_cards: vec![],
-            played_cards: vec![
-                Card {
-                    face: CardFace::One,
-                    suit: CardSuit::Blue,
-                },
-                Card {
-                    face: CardFace::Two,
-                    suit: CardSuit::Blue,
-                },
-                Card {
-                    face: CardFace::One,
-                    suit: CardSuit::Green,
-                },
-                Card {
-                    face: CardFace::Three,
-                    suit: CardSuit::Blue,
-                },
-                Card {
-                    face: CardFace::Four,
-                    suit: CardSuit::Blue,
-                },
-                Card {
-                    face: CardFace::Five,
-                    suit: CardSuit::Blue,
-                },
-                Card {
-                    face: CardFace::One,
-                    suit: CardSuit::Red,
-                },
-                Card {
-                    face: CardFace::Two,
-                    suit: CardSuit::Red,
-                },
-                Card {
-                    face: CardFace::One,
-                    suit: CardSuit::Yellow,
-                },
-            ],
-            discard_pile: vec![
-                Card {
-                    face: CardFace::Two,
-                    suit: CardSuit::Red,
-                },
-                Card {
-                    face: CardFace::Two,
-                    suit: CardSuit::Red,
-                },
-                Card {
-                    face: CardFace::One,
-                    suit: CardSuit::Red,
-                },
-                Card {
-                    face: CardFace::Three,
-                    suit: CardSuit::Blue,
-                },
-                Card {
-                    face: CardFace::Five,
-                    suit: CardSuit::Green,
-                },
-                Card {
-                    face: CardFace::Five,
-                    suit: CardSuit::Red,
-                },
-            ],
-            players: vec![
-                ClientPlayerView::Me {
-                    hand: vec![
-                        Some(ClientHiddenCard {
-                            hints: vec![Hint::IsSuit(CardSuit::Blue)],
-                        }),
-                        Some(ClientHiddenCard {
-                            hints: vec![Hint::IsSuit(CardSuit::Blue)],
-                        }),
-                        Some(ClientHiddenCard {
-                            hints: vec![Hint::IsNotSuit(CardSuit::Blue)],
-                        }),
-                        Some(ClientHiddenCard {
-                            hints: vec![Hint::IsNotSuit(CardSuit::Blue)],
-                        }),
-                    ],
-                },
-                ClientPlayerView::Teammate(Player {
-                    hand: vec![
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Three,
-                                suit: CardSuit::Green,
-                            },
-                            hints: vec![
-                                Hint::IsFace(CardFace::Three),
-                                Hint::IsSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Four,
-                                suit: CardSuit::Yellow,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Five,
-                                suit: CardSuit::White,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::One,
-                                suit: CardSuit::Red,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                    ],
-                }),
-                ClientPlayerView::Teammate(Player {
-                    hand: vec![
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Three,
-                                suit: CardSuit::Green,
-                            },
-                            hints: vec![
-                                Hint::IsFace(CardFace::Three),
-                                Hint::IsSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Four,
-                                suit: CardSuit::Yellow,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Five,
-                                suit: CardSuit::White,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::One,
-                                suit: CardSuit::Red,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                    ],
-                }),
-                ClientPlayerView::Teammate(Player {
-                    hand: vec![
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Three,
-                                suit: CardSuit::Green,
-                            },
-                            hints: vec![
-                                Hint::IsFace(CardFace::Three),
-                                Hint::IsSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Four,
-                                suit: CardSuit::Yellow,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::Five,
-                                suit: CardSuit::White,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                        Some(Slot {
-                            card: Card {
-                                face: CardFace::One,
-                                suit: CardSuit::Red,
-                            },
-                            hints: vec![
-                                Hint::IsNotFace(CardFace::Three),
-                                Hint::IsNotSuit(CardSuit::Green),
-                            ],
-                        }),
-                    ],
-                }),
-            ],
-            remaining_bomb_count: 3,
-            remaining_hint_count: 8,
-            turn: 0,
-            last_turn: None,
-        };
-
+    pub fn new(game_log: GameLog) -> Self {
+        let game_state = game_log.current_game_state();
+        let client_state = game_log
+            .current_game_state()
+            .into_client_game_state(game_state.current_player_index());
         HanabiApp {
             exit: false,
             command: CommandState {
                 current_command: CommandBuilder::Empty,
             },
-            game_state,
-            // menu_options: StatefulList::default(),
+            game_log,
+            game_state: client_state,
         }
     }
 
@@ -366,10 +147,22 @@ impl HanabiApp {
                         self.exit = true;
                     }
                     key_code => {
-                        let options = legend_for_command_state(&self.command.current_command);
+                        let options = self.legend_for_command_state();
                         let chosen_option = options.into_iter().find(|a| a.key_code == key_code);
                         if let Some(LegendItem { action, .. }) = chosen_option {
-                            self.command = process_app_action(self.command.clone(), action);
+                            let (builder, action) =
+                                process_app_action(self.command.clone(), action);
+                            match action {
+                                Some(action) => {
+                                    self.game_state = self.game_log.log(action).map(|s| {
+                                        s.clone().into_client_game_state(s.current_player_index())
+                                    })?;
+
+                                    // todo don't unwrap
+                                }
+                                _ => {}
+                            }
+                            self.command = builder;
                         }
                     }
                 }
@@ -394,8 +187,14 @@ impl HanabiApp {
         for (index, client) in self.game_state.players.iter().enumerate() {
             render_player(
                 client,
-                match (self.game_state.turn, &self.command.current_command) {
-                    (turn, _) if turn as usize == index => PlayerRenderState::CurrentTurn,
+                index,
+                match (
+                    self.game_state.current_player_index,
+                    &self.command.current_command,
+                ) {
+                    (PlayerIndex(turn), _) if turn as usize == index => {
+                        PlayerRenderState::CurrentTurn
+                    }
                     (
                         _,
                         &CommandBuilder::Hint(
@@ -558,7 +357,7 @@ impl HanabiApp {
         }
 
         let hint_title = Span::from(format!("{:<8}", "hints:"))
-            .style(Style::default().not_bold().fg(Color::Gray).dim());
+            .style(Style::default().not_bold().fg(Color::Gray));
         let hint_span =
             Span::from("\u{f444} ".repeat(self.game_state.remaining_hint_count as usize))
                 .style(Style::default().fg(Color::White));
@@ -566,7 +365,7 @@ impl HanabiApp {
         let hints_remaining = [hint_title, hint_span];
 
         let bomb_title = Span::from(format!("{:<8}", "bombs:"))
-            .style(Style::default().not_bold().fg(Color::Gray).dim());
+            .style(Style::default().not_bold().fg(Color::Gray));
         let bomb_span =
             Span::from("\u{f0691} ".repeat(self.game_state.remaining_bomb_count as usize))
                 .style(Style::default().fg(Color::White));
@@ -624,7 +423,7 @@ impl HanabiApp {
         let discard_block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().gray().dim())
+            .border_style(Style::default().gray())
             .title("discards");
         frame.render_widget(
             discards.block(discard_block),
@@ -644,13 +443,78 @@ impl HanabiApp {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title("Game Log");
+        let log_color = Color::Gray;
 
-        let log = Paragraph::new("").block(game_log_block);
+        let initial: Vec<Span> = vec![
+            Span::from("Game Start").style(Style::default().fg(log_color)),
+            Span::from("Player #0's turn").style(Style::default().fg(log_color)),
+        ];
+
+        let lines: Vec<Span> = self
+            .game_log
+            .log
+            .iter()
+            .map(|(action, state)| {
+                let text: String = match action {
+                    PlayerAction::GiveHint(PlayerIndex(hinted_player), hint) => {
+                        let hint_text = match hint {
+                            HintAction::SameSuit(suit) => {
+                                format!("Hint to {}'s {} cards.", hinted_player, suit.key())
+                            }
+                            HintAction::SameFace(face) => {
+                                format!("Hint to {}'s {} cards.", hinted_player, face.key())
+                            }
+                        };
+                        hint_text
+                    }
+                    PlayerAction::PlayCard(SlotIndex(slot)) => {
+                        format!("Played card #{}", slot)
+                    }
+                    PlayerAction::DiscardCard(SlotIndex(slot)) => {
+                        format!("Discarded card #{}", slot)
+                    }
+                };
+
+                vec![
+                    Span::from(format!("{}", text)).style(Style::default().fg(log_color)),
+                    Span::from(format!("Player #{}'s turn", state.current_player_index().0))
+                        .style(Style::default().fg(log_color)),
+                ]
+            })
+            .flatten()
+            .collect_vec();
+
+        let outcome_lines = match &self.game_state.outcome {
+            Some(outcome) => vec![Span::from(format!("Game Over: {:?}", outcome))
+                .style(Style::default().fg(log_color))],
+            None => vec![],
+        };
+
+        let lines = initial
+            .into_iter()
+            .chain(lines.into_iter())
+            .chain(outcome_lines.into_iter())
+            .collect_vec();
+
+        let text = Text::from_iter(lines);
+        let log = Paragraph::new(text).block(game_log_block);
+
         frame.render_widget(log, area);
+
+        render_title(
+            frame,
+            Rect {
+                x: area.x - 3,
+                y: area.y + 1,
+                width: area.width,
+                height: area.height - 5,
+            },
+        )
+        .expect("big text error");
     }
 
     pub fn render_game_actions(&mut self, frame: &mut Frame, area: Rect) {
-        let actions = legend_for_command_state(&self.command.current_command);
+        let actions = self.legend_for_command_state();
 
         let legend_string: Vec<_> =
             Itertools::intersperse(actions.iter().map(Some), None).collect();
@@ -661,21 +525,22 @@ impl HanabiApp {
                     desc,
                     key_code: KeyCode::Char(key),
                     ..
-                }) => Span::from(format!("{} [{}]", desc, key)).style(
-                    Style::default()
-                        .bg(Color::Rgb(117, 158, 179))
-                        .fg(Color::White),
-                ),
+                }) => Span::from(format!("{} [{}]", desc, key))
+                    .style(Style::default().bg(SELECTION_COLOR).fg(Color::White)),
 
                 Some(LegendItem {
                     desc,
                     key_code: KeyCode::Backspace,
                     ..
-                }) => Span::from(format!("{} [{}]", desc, "\u{f030d}")).style(
-                    Style::default()
-                        .bg(Color::Rgb(117, 158, 179))
-                        .fg(Color::White),
-                ),
+                }) => Span::from(format!("{} [{}]", desc, "\u{f030d}"))
+                    .style(Style::default().bg(SELECTION_COLOR).fg(Color::White)),
+
+                Some(LegendItem {
+                    desc,
+                    key_code: KeyCode::Esc,
+                    ..
+                }) => Span::from(format!("{} [{}]", desc, "\u{f12b7} "))
+                    .style(Style::default().bg(Color::LightMagenta).fg(Color::White)),
 
                 Some(_) => panic!("Unknown keycode"),
 
@@ -684,6 +549,204 @@ impl HanabiApp {
             .collect();
 
         frame.render_widget(Line::from_iter(lines.into_iter()), area);
+    }
+
+    fn legend_for_command_state(&self) -> Vec<LegendItem> {
+        if let Some(outcome) = &self.game_state.outcome {
+            return vec![LegendItem {
+                desc: format!("Quit"),
+                key_code: KeyCode::Esc,
+                action: AppAction::Quit,
+            }];
+        }
+
+        use KeyCode::*;
+        match self.command.current_command {
+            CommandBuilder::Empty => [
+                Some(LegendItem {
+                    desc: "Play Card".to_string(),
+                    key_code: Char('p'),
+                    action: AppAction::StartPlay,
+                }),
+                Some(LegendItem {
+                    desc: "Discard Card".to_string(),
+                    key_code: Char('d'),
+                    action: AppAction::StartDiscard,
+                }),
+                match self.game_state.remaining_hint_count {
+                    0 => None,
+                    _ => Some(LegendItem {
+                        desc: "Give Hint".to_string(),
+                        key_code: Char('h'),
+                        action: AppAction::StartHint,
+                    }),
+                },
+                match self.game_log.log.len() {
+                    0 => None,
+                    _ => Some(LegendItem {
+                        desc: "Undo".to_string(),
+                        key_code: Char('u'),
+                        action: AppAction::Undo,
+                    }),
+                },
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            CommandBuilder::Hint(HintState::ChoosingPlayer) => (0..self.game_state.players.len())
+                .filter(|&index| self.game_state.current_player_index.0 != index)
+                .map(|index| LegendItem {
+                    desc: format!("Player #{}", index + 1),
+                    key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
+                    action: AppAction::SelectPlayer {
+                        player_index: index as u8,
+                    },
+                })
+                .chain(iter::once(LegendItem {
+                    desc: "Back".to_string(),
+                    key_code: Backspace,
+                    action: AppAction::Undo,
+                }))
+                .collect_vec(),
+
+            CommandBuilder::Hint(HintState::ChoosingFace { .. }) => vec![
+                LegendItem {
+                    desc: "One".to_string(),
+                    key_code: Char('1'),
+                    action: AppAction::SelectFace(CardFace::One),
+                },
+                LegendItem {
+                    desc: "Two".to_string(),
+                    key_code: Char('2'),
+                    action: AppAction::SelectFace(CardFace::Two),
+                },
+                LegendItem {
+                    desc: "Three".to_string(),
+                    key_code: Char('3'),
+                    action: AppAction::SelectFace(CardFace::Three),
+                },
+                LegendItem {
+                    desc: "Four".to_string(),
+                    key_code: Char('4'),
+                    action: AppAction::SelectFace(CardFace::Four),
+                },
+                LegendItem {
+                    desc: "Five".to_string(),
+                    key_code: Char('5'),
+                    action: AppAction::SelectFace(CardFace::Five),
+                },
+                LegendItem {
+                    desc: "Back".to_string(),
+                    key_code: Backspace,
+                    action: AppAction::Undo,
+                },
+            ],
+            CommandBuilder::Hint(HintState::ChoosingSuit { .. }) => vec![
+                LegendItem {
+                    desc: "Blue".to_string(),
+                    key_code: Char('b'),
+                    action: AppAction::SelectSuit(CardSuit::Blue),
+                },
+                LegendItem {
+                    desc: "Green".to_string(),
+                    key_code: Char('g'),
+                    action: AppAction::SelectSuit(CardSuit::Green),
+                },
+                LegendItem {
+                    desc: "Red".to_string(),
+                    key_code: Char('r'),
+                    action: AppAction::SelectSuit(CardSuit::Red),
+                },
+                LegendItem {
+                    desc: "White".to_string(),
+                    key_code: Char('w'),
+                    action: AppAction::SelectSuit(CardSuit::White),
+                },
+                LegendItem {
+                    desc: "Yellow".to_string(),
+                    key_code: Char('y'),
+                    action: AppAction::SelectSuit(CardSuit::Yellow),
+                },
+                LegendItem {
+                    desc: "Back".to_string(),
+                    key_code: Backspace,
+                    action: AppAction::Undo,
+                },
+            ],
+            CommandBuilder::Hint(HintState::ChoosingHintType { .. }) => vec![
+                LegendItem {
+                    desc: "Suit".to_string(),
+                    key_code: Char('s'),
+                    action: AppAction::SelectHintType {
+                        hint_type: HintBuilderType::Suite,
+                    },
+                },
+                LegendItem {
+                    desc: "Face".to_string(),
+                    key_code: Char('f'),
+                    action: AppAction::SelectHintType {
+                        hint_type: HintBuilderType::Face,
+                    },
+                },
+                LegendItem {
+                    desc: "Back".to_string(),
+                    key_code: Backspace,
+                    action: AppAction::Undo,
+                },
+            ],
+            CommandBuilder::Play(CardState::ChoosingCard { card_type })
+            | CommandBuilder::Discard(CardState::ChoosingCard { card_type }) => {
+                let action = match card_type {
+                    CardBuilderType::Play => "Play",
+                    CardBuilderType::Discard => "Discard",
+                };
+                match self
+                    .game_state
+                    .players
+                    .get(self.game_state.current_player_index.0)
+                {
+                    Some(ClientPlayerView::Me { hand }) => hand
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, slot)| slot.is_some())
+                        .map(|(index, _)| LegendItem {
+                            desc: format!("{} #{}", action, index + 1),
+                            key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
+                            action: AppAction::SelectCard(SlotIndex(index)),
+                        })
+                        .chain(iter::once(LegendItem {
+                            desc: "Back".to_string(),
+                            key_code: Backspace,
+                            action: AppAction::Undo,
+                        }))
+                        .collect(),
+                    _ => panic!("Shouldn't be able to play as another player"),
+                }
+
+                // vec![
+                //     LegendItem {
+                //         desc: format!("{} #1", action),
+                //         key_code: Char('1'),
+                //         action: AppAction::SelectCard(SlotIndex(0)),
+                //     },
+                //     LegendItem {
+                //         desc: format!("{} #2", action),
+                //         key_code: Char('2'),
+                //         action: AppAction::SelectCard(SlotIndex(1)),
+                //     },
+                //     LegendItem {
+                //         desc: format!("{} #3", action),
+                //         key_code: Char('3'),
+                //         action: AppAction::SelectCard(SlotIndex(2)),
+                //     },
+                //     LegendItem {
+                //         desc: format!("{} #4", action),
+                //         key_code: Char('4'),
+                //         action: AppAction::SelectCard(SlotIndex(3)),
+                //     },
+                // ]
+            }
+        }
     }
 }
 
@@ -703,6 +766,26 @@ fn colorize_suit(suit: CardSuit) -> Color {
     }
 }
 
+fn render_title(frame: &mut Frame, area: Rect) -> Result<(), String> {
+    let big_text = BigText::builder()
+        .pixel_size(PixelSize::Quadrant)
+        .alignment(Alignment::Right)
+        .style(Style::new().fg(Color::Rgb(60, 60, 60)))
+        .lines(vec![
+            "hanabi".into(),
+            // "h".into(),
+            // "a".into(),
+            // "n".into(),
+            // "a".into(),
+            // "b".into(),
+            // "i".into(),
+        ])
+        .build()
+        .map_err(|e| e.to_string())?;
+    frame.render_widget(big_text, area);
+    Ok(())
+}
+
 fn render_placeholder(suit: Option<CardSuit>) -> Block<'static> {
     let color = suit.map(colorize_suit).unwrap_or(Color::DarkGray);
     let block = Block::new()
@@ -715,8 +798,10 @@ fn render_placeholder(suit: Option<CardSuit>) -> Block<'static> {
 
 fn render_card(face: Option<CardFace>, suit: Option<CardSuit>) -> Paragraph<'static> {
     let color = suit.map(colorize_suit).unwrap_or(Color::Gray);
-    let p = Paragraph::new(face.map(|f| f.key()).unwrap_or("?").to_string())
-        .style(Style::new().fg(color).bold());
+    let p = Paragraph::new(
+        face.map(|f| f.key().set_style(Style::new().fg(color).bold()))
+            .unwrap_or("?".set_style(Style::new().fg(Color::Gray))),
+    );
     let block = Block::new()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -724,6 +809,14 @@ fn render_card(face: Option<CardFace>, suit: Option<CardSuit>) -> Paragraph<'sta
     // .bg(colorize_suit(card.suit));
 
     p.block(block)
+}
+
+fn render_card_span(face: Option<CardFace>, suit: Option<CardSuit>) -> Span<'static> {
+    let color = suit.map(colorize_suit).unwrap_or(Color::Gray);
+    Span::styled(
+        face.map(|f| f.key()).unwrap_or("?").to_string(),
+        Style::new().fg(color).bold(),
+    )
 }
 
 enum PlayerRenderState {
@@ -734,13 +827,14 @@ enum PlayerRenderState {
 
 fn render_player(
     player: &ClientPlayerView,
+    index: usize,
     render_state: PlayerRenderState,
     frame: &mut Frame,
     area: Rect,
 ) {
     let num_cards = match player {
         ClientPlayerView::Me { hand } => hand.len(),
-        ClientPlayerView::Teammate(Player { hand }) => hand.len(),
+        ClientPlayerView::Teammate { hand } => hand.len(),
     };
     let player_block = Block::new()
         .borders(Borders::ALL)
@@ -753,11 +847,19 @@ fn render_player(
             PlayerRenderState::CurrentTurn => Style::default().fg(Color::Magenta),
             PlayerRenderState::CurrentSelection => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .fg(Color::White)
+                .fg(SELECTION_COLOR)
                 .rapid_blink(),
             _ => Style::default().fg(Color::White),
         })
-        .title("Player");
+        .title(
+            format!("Player {}", index + 1).set_style(match render_state {
+                PlayerRenderState::CurrentTurn => Style::default(),
+                PlayerRenderState::CurrentSelection => {
+                    Style::default().fg(Color::Black).bg(SELECTION_COLOR).dim()
+                }
+                PlayerRenderState::Default => Style::default(),
+            }),
+        );
     let player_rect = player_block.inner(area);
 
     let not_hints_block = Block::new()
@@ -782,9 +884,7 @@ fn render_player(
     for index in 0..num_cards {
         let hints = match &player {
             ClientPlayerView::Me { hand } => hand[index].as_ref().map(|h| h.hints.as_slice()),
-            ClientPlayerView::Teammate(Player { hand }) => {
-                hand[index].as_ref().map(|h| h.hints.as_slice())
-            }
+            ClientPlayerView::Teammate { hand } => hand[index].as_ref().map(|h| h.hints.as_slice()),
         };
 
         let (suit, face) = match player {
@@ -801,7 +901,7 @@ fn render_player(
 
                 (suit, face)
             }),
-            ClientPlayerView::Teammate(Player { hand }) => hand[index]
+            ClientPlayerView::Teammate { hand } => hand[index]
                 .as_ref()
                 .map(|s| (Some(s.card.suit), Some(s.card.face))),
         }
@@ -834,11 +934,12 @@ fn render_player(
                     Some(Line::from(match hint {
                         Hint::IsSuit(suit) => Span::styled(
                             suit.key().to_string(),
-                            Style::new().fg(colorize_suit(*suit)),
+                            Style::new().fg(colorize_suit(*suit)).bold(),
                         ),
-                        Hint::IsFace(face) => {
-                            Span::styled(face.key().to_string(), Style::new().fg(Color::DarkGray))
-                        }
+                        Hint::IsFace(face) => Span::styled(
+                            face.key().to_string(),
+                            Style::new().fg(Color::Gray).bold(),
+                        ),
                         _ => return None,
                     }))
                 })
@@ -855,7 +956,7 @@ fn render_player(
                     Some(Line::from(match hint {
                         Hint::IsNotSuit(suit) => Span::styled(
                             suit.key().to_string(),
-                            Style::new().fg(colorize_suit(*suit)),
+                            Style::new().fg(colorize_suit(*suit)).dim(),
                         ),
                         Hint::IsNotFace(face) => {
                             Span::styled(face.key().to_string(), Style::new().fg(Color::DarkGray))
@@ -897,146 +998,4 @@ fn render_player(
     }
 
     // frame.render_widget(paragraph.clone().block(inner_block), inner);
-}
-
-fn legend_for_command_state(command: &CommandBuilder) -> Vec<LegendItem> {
-    use KeyCode::*;
-    match command {
-        CommandBuilder::Empty => {
-            vec![
-                // LegendItem {
-                //     desc: "Play Card".to_string(),
-                //     key_code: Char('p'),
-                //     action: AppA,
-                // },
-                // LegendItem {
-                //     desc: "Discard Card".to_string(),
-                //     key_code: Char('d'),
-                //     action: vec![LegendMode::PickCard],
-                // },
-                LegendItem {
-                    desc: "Give Hint".to_string(),
-                    key_code: Char('h'),
-                    action: AppAction::StartHint,
-                },
-                LegendItem {
-                    desc: "Undo".to_string(),
-                    key_code: Char('u'),
-                    action: AppAction::Undo,
-                },
-            ]
-        }
-        CommandBuilder::Hint(HintState::ChoosingPlayer) => vec![
-            LegendItem {
-                desc: "One".to_string(),
-                key_code: Char('1'),
-                action: AppAction::SelectPlayer { player_index: 0 },
-            },
-            LegendItem {
-                desc: "Two".to_string(),
-                key_code: Char('2'),
-                action: AppAction::SelectPlayer { player_index: 1 },
-            },
-            LegendItem {
-                desc: "Three".to_string(),
-                key_code: Char('3'),
-                action: AppAction::SelectPlayer { player_index: 2 },
-            },
-            LegendItem {
-                desc: "Four".to_string(),
-                key_code: Char('4'),
-                action: AppAction::SelectPlayer { player_index: 3 },
-            },
-            LegendItem {
-                desc: "Back".to_string(),
-                key_code: Backspace,
-                action: AppAction::Undo,
-            },
-        ],
-        CommandBuilder::Hint(HintState::ChoosingFace { .. }) => vec![
-            LegendItem {
-                desc: "One".to_string(),
-                key_code: Char('1'),
-                action: AppAction::SelectFace(CardFace::One),
-            },
-            LegendItem {
-                desc: "Two".to_string(),
-                key_code: Char('2'),
-                action: AppAction::SelectFace(CardFace::Two),
-            },
-            LegendItem {
-                desc: "Three".to_string(),
-                key_code: Char('3'),
-                action: AppAction::SelectFace(CardFace::Three),
-            },
-            LegendItem {
-                desc: "Four".to_string(),
-                key_code: Char('4'),
-                action: AppAction::SelectFace(CardFace::Four),
-            },
-            LegendItem {
-                desc: "Five".to_string(),
-                key_code: Char('5'),
-                action: AppAction::SelectFace(CardFace::Five),
-            },
-            LegendItem {
-                desc: "Back".to_string(),
-                key_code: Backspace,
-                action: AppAction::Undo,
-            },
-        ],
-        CommandBuilder::Hint(HintState::ChoosingSuit { .. }) => vec![
-            LegendItem {
-                desc: "Blue".to_string(),
-                key_code: Char('b'),
-                action: AppAction::SelectSuit(CardSuit::Blue),
-            },
-            LegendItem {
-                desc: "Green".to_string(),
-                key_code: Char('g'),
-                action: AppAction::SelectSuit(CardSuit::Green),
-            },
-            LegendItem {
-                desc: "Red".to_string(),
-                key_code: Char('r'),
-                action: AppAction::SelectSuit(CardSuit::Red),
-            },
-            LegendItem {
-                desc: "White".to_string(),
-                key_code: Char('w'),
-                action: AppAction::SelectSuit(CardSuit::White),
-            },
-            LegendItem {
-                desc: "Yellow".to_string(),
-                key_code: Char('y'),
-                action: AppAction::SelectSuit(CardSuit::Yellow),
-            },
-            LegendItem {
-                desc: "Back".to_string(),
-                key_code: Backspace,
-                action: AppAction::Undo,
-            },
-        ],
-        CommandBuilder::Hint(HintState::ChoosingHintType { .. }) => vec![
-            LegendItem {
-                desc: "Suit".to_string(),
-                key_code: Char('s'),
-                action: AppAction::SelectHintType {
-                    hint_type: HintBuilderType::Suite,
-                },
-            },
-            LegendItem {
-                desc: "Face".to_string(),
-                key_code: Char('f'),
-                action: AppAction::SelectHintType {
-                    hint_type: HintBuilderType::Face,
-                },
-            },
-            LegendItem {
-                desc: "Back".to_string(),
-                key_code: Backspace,
-                action: AppAction::Undo,
-            },
-        ],
-    }
 }
