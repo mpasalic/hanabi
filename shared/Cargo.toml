@@ -1,0 +1,13 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+strum = "0.25.0"
+strum_macros = "0.25.2"
+itertools = "0.12.1"
+enum-map = "2.6.1"
+getrandom = "0.2.14"
+rand = "0.8.5"
+rand_chacha = "0.3.1"

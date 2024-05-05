@@ -1,7 +1,6 @@
 use itertools::Itertools;
 use rand::Rng;
 use strum::IntoEnumIterator;
-mod logic_tests;
 
 use crate::model::{
     Card, CardFace, CardSuit, GameConfig, GameEffect, GameOutcome, GameState, Hint, HintAction,

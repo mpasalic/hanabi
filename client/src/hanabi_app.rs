@@ -1,16 +1,13 @@
-use crate::model::*;
 use crossterm::{
     event,
     event::{Event, KeyCode},
 };
 use ratatui::{style::Stylize, Frame, Terminal};
+use shared::model::*;
 use std::{char::from_digit, iter, ops::ControlFlow, time::Duration};
 use tui_big_text::{BigText, PixelSize};
 
-use crate::{
-    model::{ClientGameState, ClientPlayerView},
-    BoxedResult,
-};
+use shared::model::{ClientPlayerView, GameStateSnapshot};
 
 use itertools::Itertools;
 use ratatui::{
@@ -18,7 +15,9 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
-use crate::client_logic::*;
+use shared::client_logic::*;
+
+use crate::BoxedResult;
 
 trait CardKey {
     fn key(&self) -> &'static str;
@@ -106,7 +105,7 @@ pub struct HanabiApp {
     exit: bool,
     command: CommandState,
     // menu_options: StatefulList,
-    game_state: ClientGameState,
+    game_state: GameStateSnapshot,
     game_log: GameLog,
 }
 
@@ -188,10 +187,7 @@ impl HanabiApp {
             render_player(
                 client,
                 index,
-                match (
-                    self.game_state.current_player_index,
-                    &self.command.current_command,
-                ) {
+                match (self.game_state.turn, &self.command.current_command) {
                     (PlayerIndex(turn), _) if turn as usize == index => {
                         PlayerRenderState::CurrentTurn
                     }
@@ -594,7 +590,7 @@ impl HanabiApp {
             .flatten()
             .collect(),
             CommandBuilder::Hint(HintState::ChoosingPlayer) => (0..self.game_state.players.len())
-                .filter(|&index| self.game_state.current_player_index.0 != index)
+                .filter(|&index| self.game_state.turn.0 != index)
                 .map(|index| LegendItem {
                     desc: format!("Player #{}", index + 1),
                     key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
@@ -700,11 +696,7 @@ impl HanabiApp {
                     CardBuilderType::Play => "Play",
                     CardBuilderType::Discard => "Discard",
                 };
-                match self
-                    .game_state
-                    .players
-                    .get(self.game_state.current_player_index.0)
-                {
+                match self.game_state.players.get(self.game_state.turn.0) {
                     Some(ClientPlayerView::Me { hand }) => hand
                         .iter()
                         .enumerate()

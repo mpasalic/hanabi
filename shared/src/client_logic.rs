@@ -3,9 +3,29 @@ use rand_chacha::ChaCha8Rng;
 use strum::IntoEnumIterator;
 
 use crate::model::{
-    Card, CardFace, CardSuit, ClientGameState, ClientPlayerView, GameConfig, GameState, HiddenSlot,
-    HintAction, PlayerAction, PlayerIndex, SlotIndex,
+    Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameState, GameStateSnapshot,
+    HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
 };
+
+pub enum ClientToServerMessage {
+    Join {
+        player_name: String,
+        session_id: String,
+    },
+    PlayerAction(PlayerAction),
+}
+
+pub enum ServerToClientMessage {
+    PlayerJoined {
+        players: Vec<String>, // not sure ye
+    },
+    GameStarted {
+        player_index: u8,
+        game_state: GameStateSnapshot,
+    },
+
+    UpdatedGameState(GameStateSnapshot),
+}
 
 #[derive(Debug, Clone)]
 pub enum HintState {
@@ -195,8 +215,8 @@ impl GameLog {
 }
 
 impl GameState {
-    pub fn into_client_game_state(self, player: PlayerIndex) -> ClientGameState {
-        ClientGameState {
+    pub fn into_client_game_state(self, player: PlayerIndex) -> GameStateSnapshot {
+        GameStateSnapshot {
             draw_pile_count: self.draw_pile.len() as u8,
             played_cards: self.played_cards.clone(),
             discard_pile: self.discard_pile.clone(),
@@ -223,8 +243,8 @@ impl GameState {
                 .collect(),
             remaining_bomb_count: self.remaining_bomb_count,
             remaining_hint_count: self.remaining_hint_count,
-            current_player_index: self.current_player_index(),
-            turn: self.turn,
+            turn: self.current_player_index(),
+            num_rounds: self.turn,
             last_turn: self.last_turn,
             outcome: self.outcome,
         }
