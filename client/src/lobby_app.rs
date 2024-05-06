@@ -105,14 +105,12 @@ pub struct HanabiApp {
     exit: bool,
     command: CommandState,
     // menu_options: StatefulList,
-    game_state: GameStateSnapshot,
 }
 
 pub enum EventHandlerResult {
     PlayerAction(PlayerAction),
     Quit,
     Continue,
-    Start,
 }
 
 impl HanabiApp {
@@ -122,6 +120,7 @@ impl HanabiApp {
             command: CommandState {
                 current_command: CommandBuilder::Empty,
             },
+
             game_state: game_state,
         }
     }
@@ -131,16 +130,12 @@ impl HanabiApp {
     where
         T: ratatui::backend::Backend,
     {
-        // while !self.exit {
-        terminal.draw(|frame| self.ui(frame))?;
-        // self.handle_events()?;
-        // }
+        while !self.exit {
+            terminal.draw(|frame| self.ui(frame))?;
+            self.handle_events()?;
+        }
 
         Ok(())
-    }
-
-    pub fn update(&mut self, state: GameStateSnapshot) {
-        self.game_state = state;
     }
 
     /// runs the application's main loop until the user quits
@@ -161,26 +156,7 @@ impl HanabiApp {
                     Char('q') | Esc => {
                         self.exit = true;
                     }
-                    Char('s') => return Ok(EventHandlerResult::Start),
-                    key_code => {
-                        let options = self.legend_for_command_state();
-
-                        if let Some(LegendItem { action, .. }) =
-                            options.into_iter().find(|a| a.key_code == key_code)
-                        {
-                            let (builder, player_action) =
-                                process_app_action(self.command.clone(), action);
-                            match player_action {
-                                Some(action) => {
-                                    return Ok(EventHandlerResult::PlayerAction(action));
-
-                                    // todo don't unwrap
-                                }
-                                _ => {}
-                            }
-                            self.command = builder;
-                        }
-                    }
+                    _ => {}
                 }
 
                 if self.exit {
@@ -194,6 +170,12 @@ impl HanabiApp {
     }
 
     fn ui(&mut self, frame: &mut Frame) {
+        // let player = Block::new()
+        //     .borders(Borders::ALL)
+        //     .border_type(BorderType::Rounded)
+        //     .border_style(Style::new().white().add_modifier(Modifier::DIM))
+        //     .title(format!("Mirza"));
+
         for (index, client) in self.game_state.players.iter().enumerate() {
             render_player(
                 client,
@@ -566,10 +548,6 @@ impl HanabiApp {
                 key_code: KeyCode::Esc,
                 action: AppAction::Quit,
             }];
-        }
-
-        if self.game_state.turn != self.game_state.player_snapshot {
-            return vec![];
         }
 
         use KeyCode::*;

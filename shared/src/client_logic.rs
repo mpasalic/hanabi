@@ -1,5 +1,6 @@
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use crate::model::{
@@ -7,20 +8,27 @@ use crate::model::{
     HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
 };
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ClientToServerMessage {
     Join {
         player_name: String,
         session_id: String,
     },
-    PlayerAction(PlayerAction),
+    StartGame,
+    PlayerAction {
+        player_index: PlayerIndex,
+        action: PlayerAction,
+    },
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 
 pub enum ServerToClientMessage {
     PlayerJoined {
         players: Vec<String>, // not sure ye
     },
     GameStarted {
-        player_index: u8,
+        player_index: PlayerIndex,
         game_state: GameStateSnapshot,
     },
 
@@ -56,7 +64,7 @@ pub enum CardBuilderType {
     Discard,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AppAction {
     Undo,
     Quit,
@@ -217,6 +225,7 @@ impl GameLog {
 impl GameState {
     pub fn into_client_game_state(self, player: PlayerIndex) -> GameStateSnapshot {
         GameStateSnapshot {
+            player_snapshot: player,
             draw_pile_count: self.draw_pile.len() as u8,
             played_cards: self.played_cards.clone(),
             discard_pile: self.discard_pile.clone(),
