@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use crate::model::{
-    Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameState, GameStateSnapshot,
-    HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
+    Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameEffect, GameEvent, GameState,
+    GameStateSnapshot, HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -22,16 +22,25 @@ pub enum ClientToServerMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+struct Lobby {
+    session_id: String,
+    name: String,
+    players: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 
 pub enum ServerToClientMessage {
     PlayerJoined {
-        players: Vec<String>, // not sure ye
+        players: Vec<String>,
     },
     GameStarted {
         player_index: PlayerIndex,
         game_state: GameStateSnapshot,
     },
-
+    // AvailableGames {
+    //     open_lobbies: Vec<Lobby>,
+    // },
     UpdatedGameState(GameStateSnapshot),
 }
 
@@ -65,9 +74,9 @@ pub enum CardBuilderType {
 }
 
 #[derive(Debug, Clone)]
-pub enum AppAction {
+pub enum GameAction {
     Undo,
-    Quit,
+    StartGame,
     StartHint,
     StartPlay,
     StartDiscard,
@@ -93,10 +102,10 @@ pub struct CommandState {
 
 pub fn process_app_action(
     state: CommandState,
-    action: AppAction,
+    action: GameAction,
 ) -> (CommandState, Option<PlayerAction>) {
-    use AppAction as A;
     use CommandBuilder as C;
+    use GameAction as A;
     let builder = match (state.current_command, action) {
         (C::Empty, A::StartHint) => C::Hint(HintState::ChoosingPlayer),
         (C::Empty, A::StartPlay) => C::Play(CardState::ChoosingCard {
@@ -191,6 +200,7 @@ pub fn process_app_action(
 pub struct GameLog {
     pub initial: GameState,
     pub log: Vec<(PlayerAction, GameState)>,
+    pub history: Vec<GameEvent>,
 }
 
 impl GameLog {
@@ -198,12 +208,25 @@ impl GameLog {
         GameLog {
             initial: GameState::start(&config).unwrap(),
             log: vec![],
+            history: vec![],
         }
     }
 
     pub fn log<'a>(&'a mut self, action: PlayerAction) -> Result<&'a GameState, String> {
         let mut new_game_state = self.current_game_state().clone();
+        self.history.push(GameEvent::PlayerAction(
+            new_game_state.current_player_index(),
+            action.clone(),
+        ));
+
         let effects = new_game_state.play(action.clone())?;
+        self.history.extend(
+            effects
+                .clone()
+                .into_iter()
+                .map(|effect| GameEvent::GameEffect(effect)),
+        );
+
         new_game_state.run_effects(effects)?;
         self.log.push((action, new_game_state));
 
@@ -220,16 +243,16 @@ impl GameLog {
     pub fn undo(&mut self) {
         self.log.pop();
     }
-}
 
-impl GameState {
-    pub fn into_client_game_state(self, player: PlayerIndex) -> GameStateSnapshot {
+    pub fn into_client_game_state(&self, player: PlayerIndex) -> GameStateSnapshot {
+        let game_state = self.current_game_state();
         GameStateSnapshot {
+            log: self.history.clone(),
             player_snapshot: player,
-            draw_pile_count: self.draw_pile.len() as u8,
-            played_cards: self.played_cards.clone(),
-            discard_pile: self.discard_pile.clone(),
-            players: self
+            draw_pile_count: game_state.draw_pile.len() as u8,
+            played_cards: game_state.played_cards.clone(),
+            discard_pile: game_state.discard_pile.clone(),
+            players: game_state
                 .players
                 .iter()
                 .enumerate()
@@ -250,15 +273,17 @@ impl GameState {
                     },
                 })
                 .collect(),
-            remaining_bomb_count: self.remaining_bomb_count,
-            remaining_hint_count: self.remaining_hint_count,
-            turn: self.current_player_index(),
-            num_rounds: self.turn,
-            last_turn: self.last_turn,
-            outcome: self.outcome,
+            remaining_bomb_count: game_state.remaining_bomb_count,
+            remaining_hint_count: game_state.remaining_hint_count,
+            turn: game_state.current_player_index(),
+            num_rounds: game_state.turn,
+            last_turn: game_state.last_turn,
+            outcome: game_state.outcome,
         }
     }
 }
+
+impl GameState {}
 
 pub fn new_seeded_deck(seed: u64) -> Vec<Card> {
     let mut rand = ChaCha8Rng::seed_from_u64(seed);

@@ -51,12 +51,18 @@ pub struct GameState {
     pub turn: u8,              // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
+    pub history: Vec<GameEffect>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum GameEvent {
+    PlayerAction(PlayerIndex, PlayerAction),
+    GameEffect(GameEffect),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameStateSnapshot {
     pub player_snapshot: PlayerIndex,
-
     pub draw_pile_count: u8, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
     pub discard_pile: Vec<Card>,
@@ -67,6 +73,12 @@ pub struct GameStateSnapshot {
     pub num_rounds: u8,        // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
+    pub log: Vec<GameEvent>,
+    // TODO
+    // Player names
+    //  - Connection status (eventually)
+    // History / log
+    // Status (waiting to start, playing)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -118,7 +130,7 @@ pub enum GameEffect {
     DecHint,
     IncHint,
     BurnFuse,
-    NextTurn,
+    NextTurn(PlayerIndex),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]

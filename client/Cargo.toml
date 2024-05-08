@@ -13,7 +13,7 @@ automerge = "0.5.1"
 strum = "0.25.0"
 strum_macros = "0.25.2"
 ratatui = { version = "0.26.2", features = ["all-widgets"] }
-crossterm = "0.27.0"
+crossterm = { version = "0.27.0", features = ["event-stream"] }
 itertools = "0.12.1"
 getrandom = "0.2.14"
 rand_core = "0.6.4"
@@ -23,3 +23,14 @@ websocket = "0.27.1"
 serde = "1.0.200"
 serde_json = "1.0.116"
 anyhow = "1.0.82"
+tungstenite = { version = "0.21.0", features = ["native-tls"] }
+mio = "0.8.11"
+color-eyre = "0.6.3"
+tokio = { version = "1.37.0", features = ["full"] }
+tokio-util = "0.7.11"
+futures = "0.3.30"
+futures-util = "0.3.30"
+tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
+url = "2.5.0"
+futures-channel = "0.3.30"
+tui-input = "0.8.0"

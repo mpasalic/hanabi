@@ -26,6 +26,7 @@ impl GameState {
             remaining_hint_count: config.num_hints,
             turn: config.starting_player.0 as u8,
             outcome: None,
+            history: Vec::new(),
         };
 
         use GameEffect::*;
@@ -36,6 +37,7 @@ impl GameState {
                 })
             })
             .collect();
+
         game.run_effects(init_effects)?;
         return Ok(game);
     }
@@ -52,6 +54,7 @@ impl GameState {
             .players
             .get(self.turn as usize % self.players.len())
             .ok_or_else(|| "Invalid player index".to_string())?;
+        let next_turn = PlayerIndex((self.turn as usize + 1) % self.players.len());
 
         match action {
             PlayerAction::PlayCard(SlotIndex(index)) => {
@@ -68,7 +71,7 @@ impl GameState {
                             RemoveCard(player_index, SlotIndex(index)),
                             PlaceOnBoard(slot.card),
                             DrawCard(player_index, SlotIndex(index)),
-                            NextTurn,
+                            NextTurn(next_turn),
                         ]);
                     }
                     PlayedCardResult::CompletedSet => {
@@ -77,7 +80,7 @@ impl GameState {
                             PlaceOnBoard(slot.card),
                             DrawCard(player_index, SlotIndex(index)),
                             IncHint,
-                            NextTurn,
+                            NextTurn(next_turn),
                         ]);
                     }
                     PlayedCardResult::Rejected => {
@@ -86,7 +89,7 @@ impl GameState {
                             AddToDiscrard(slot.card),
                             DrawCard(player_index, SlotIndex(index)),
                             BurnFuse,
-                            NextTurn,
+                            NextTurn(next_turn),
                         ]);
                     }
                 }
@@ -103,7 +106,7 @@ impl GameState {
                     AddToDiscrard(slot.card),
                     DrawCard(player_index, SlotIndex(index)),
                     IncHint,
-                    NextTurn,
+                    NextTurn(next_turn),
                 ]);
             }
             PlayerAction::GiveHint(PlayerIndex(hinted_player_index), hint_type) => {
@@ -156,7 +159,7 @@ impl GameState {
                         }
                     })
                     .collect();
-                let hinted_effects = vec![DecHint, NextTurn];
+                let hinted_effects = vec![DecHint, NextTurn(next_turn)];
 
                 return Ok(hints
                     .into_iter()
@@ -298,7 +301,7 @@ impl GameState {
             GameEffect::BurnFuse => {
                 self.remaining_bomb_count = self.remaining_bomb_count - 1;
             }
-            GameEffect::NextTurn => {
+            GameEffect::NextTurn(_) => {
                 self.turn = self.turn + 1;
             }
         }
