@@ -11,7 +11,7 @@ use std::{
     process::exit,
     sync::mpsc::{self, Receiver, Sender},
     thread,
-    time::{self, Duration},
+    time::{self, Duration, SystemTime},
 };
 
 use crossterm::{
@@ -25,7 +25,7 @@ use futures::{
 };
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::{future, pin_mut, StreamExt};
-use hanabi_app::{HanabiApp, HanabiGame};
+use hanabi_app::{HanabiApp, HanabiClient};
 use input::AppInput;
 use mio::net::{SocketAddr, TcpListener};
 use ratatui::prelude::*;
@@ -63,11 +63,19 @@ async fn spawn_server_connection(
 
 #[tokio::main]
 async fn main() -> BoxedResult<()> {
-    let mut terminal = setup_terminal()?;
+    let args: Vec<String> = env::args().collect();
 
-    let result = run(&mut terminal).await;
+    let (host, player_name, session_id) = match args.as_slice() {
+        [_, host, player_name, session_id] => {
+            (host.clone(), player_name.clone(), session_id.clone())
+        }
+        _ => {
+            println!("Invalid format: hanabi [host] [username] [session_id]");
+            exit(1);
+        }
+    };
 
-    restore_terminal(terminal)?;
+    let result = run_online_game(host, player_name, session_id).await;
 
     match result {
         Ok(_) => {
@@ -91,90 +99,24 @@ async fn main() -> BoxedResult<()> {
 //     }
 // }
 
-async fn run<T>(terminal: &mut Terminal<T>) -> BoxedResult<()>
-where
-    T: ratatui::backend::Backend,
-{
-    // let mut name: Option<String> = None;
-    // let mut server: Option<String> = None;
-    // let mut game_id: Option<String> = None;
+async fn connect_to_game(
+    host: String,
+    player_name: String,
+    session_id: String,
+) -> BoxedResult<(
+    tokio::sync::mpsc::UnboundedSender<ClientToServerMessage>,
+    tokio::sync::mpsc::UnboundedReceiver<ServerToClientMessage>,
+)> {
+    let (mut send_server, mut from_server): (_, _) = spawn_server_connection(host.clone()).await?;
 
-    // // TODO input example
-    // let mut input_app = AppInput::default();
-    // input_app.messages.push("Enter your name:".to_string());
-
-    // loop {
-    //     match input_app.run_app(terminal)? {
-    //         ControlFlow::Break(Some(result)) => {
-    //             if name.is_none() {
-    //                 name = Some(result);
-    //             }
-    //         }
-    //         ControlFlow::Continue(_) => continue,
-    //         ControlFlow::Break(None) => break,
-    //     }
-    // }
-
-    let args: Vec<String> = env::args().collect();
-
-    let (mut send_server, mut from_server) = match args.as_slice() {
-        [_, host, player_name, session_id] => {
-            // println!(
-            //     "Connect to {} (session: {}) as {}...",
-            //     host, session_id, player_name
-            // );
-            let (mut send_server, from_server): (_, _) =
-                spawn_server_connection(host.clone()).await?;
-
-            send_server
-                .send(Message::Text(serde_json::to_string(
-                    &ClientToServerMessage::Join {
-                        player_name: player_name.clone(),
-                        session_id: session_id.clone(),
-                    },
-                )?))
-                .await?;
-
-            (send_server, from_server)
-        }
-        _ => {
-            return Err("Invalid format: hanabi [host] [username] [session_id]".into());
-        }
-    };
-
-    // println!("Connected! Waiting for players... press 's' to start the game!");
-
-    // loop {
-    //     let message = rx.recv();
-
-    //     match message {
-    //         Ok(Messages::ServerMessage(ServerToClientMessage::GameStarted {
-    //             game_state, ..
-    //         })) => {
-    //             initial_game_state = Some(game_state);
-    //             break;
-    //         }
-    //         Ok(Messages::ServerMessage(ServerToClientMessage::PlayerJoined { players })) => {
-    //             println!("Current players: {}", players.join(", "));
-    //         }
-    //         Ok(Messages::UserInput(msg)) => {
-    //             if msg == "start\n" {
-    //                 server.send_message(&OwnedMessage::Text(serde_json::to_string(
-    //                     &ClientToServerMessage::StartGame,
-    //                 )?))?;
-    //             }
-    //         }
-    //         Err(_) => todo!(),
-    //         _ => {}
-    //     }
-    // }
-
-    let mut current_player = PlayerIndex(0);
-    let mut current_game_state = HanabiGame::Connecting {
-        log: vec!["Connecting...".to_string()],
-    };
-
-    let mut app = HanabiApp::new(current_game_state.clone());
+    send_server
+        .send(Message::Text(serde_json::to_string(
+            &ClientToServerMessage::Join {
+                player_name: player_name.clone(),
+                session_id: session_id.clone(),
+            },
+        )?))
+        .await?;
 
     let (write_tx, mut write_rx) = tokio::sync::mpsc::unbounded_channel::<ClientToServerMessage>();
     tokio::spawn(async move {
@@ -187,7 +129,7 @@ where
         }
     });
 
-    let (read_tx, mut read_rx) = tokio::sync::mpsc::unbounded_channel::<ServerToClientMessage>();
+    let (read_tx, read_rx) = tokio::sync::mpsc::unbounded_channel::<ServerToClientMessage>();
     tokio::spawn(async move {
         loop {
             let message = from_server.next().await;
@@ -199,6 +141,48 @@ where
             }
         }
     });
+
+    Ok((write_tx, read_rx))
+}
+
+async fn run_online_game(host: String, player_name: String, session_id: String) -> BoxedResult<()> {
+    loop {
+        let connection =
+            connect_to_game(host.clone(), player_name.clone(), session_id.clone()).await?;
+
+        let mut terminal = setup_terminal()?;
+        let result = run(&mut terminal, connection).await;
+        restore_terminal(terminal)?;
+
+        match result {
+            Ok(_) => {
+                break;
+            }
+            Err(err) => {
+                println!("An error occurred: {:?}", err);
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn run<T>(
+    terminal: &mut Terminal<T>,
+    connection: (
+        tokio::sync::mpsc::UnboundedSender<ClientToServerMessage>,
+        tokio::sync::mpsc::UnboundedReceiver<ServerToClientMessage>,
+    ),
+) -> BoxedResult<()>
+where
+    T: ratatui::backend::Backend,
+{
+    let (mut write_tx, mut read_rx) = connection;
+
+    let mut current_player = PlayerIndex(0);
+    let mut current_game_state = HanabiClient::Connecting;
+
+    let mut app = HanabiApp::new(current_game_state.clone());
 
     loop {
         app.run(terminal)?;
@@ -221,50 +205,76 @@ where
         }
 
         let message = read_rx.try_recv();
-        current_game_state = match (current_game_state.clone(), message) {
-            (
-                HanabiGame::Lobby { players, .. },
-                Ok(ServerToClientMessage::GameStarted {
-                    game_state,
+
+        current_game_state = match message {
+            Ok(message) => match message {
+                ServerToClientMessage::PlayerJoined { players } => current_game_state,
+                ServerToClientMessage::GameStarted {
                     player_index,
-                }),
-            ) => {
-                current_player = player_index;
-                HanabiGame::Started {
                     game_state,
-                    players,
+                } => current_game_state,
+                ServerToClientMessage::UpdatedGameState(game_state) => {
+                    HanabiClient::Loaded(game_state)
                 }
-            }
-            (
-                HanabiGame::Started { players, .. },
-                Ok(ServerToClientMessage::UpdatedGameState(game_state)),
-            ) => HanabiGame::Started {
-                game_state,
-                players,
+                ServerToClientMessage::Pong(_) => current_game_state,
             },
-            (
-                HanabiGame::Lobby { log, .. } | HanabiGame::Connecting { log, .. },
-                Ok(ServerToClientMessage::PlayerJoined { players }),
-            ) => HanabiGame::Lobby {
-                players: players.clone(),
-                log: Vec::from_iter(log.into_iter().chain(iter::once(
-                    format!("Player {} joined", players.last().unwrap().clone()).to_string(),
-                ))),
-            },
-
-            (game, Err(TryRecvError::Disconnected)) => {
-                // TODO: handle disconnect
-                game
+            Err(e @ TryRecvError::Disconnected) => {
+                return Err(Box::new(e));
             }
-            (game, Err(TryRecvError::Empty)) => game,
-
-            (game, msg) => {
-                // todo warn
-                game
-            }
+            Err(TryRecvError::Empty) => current_game_state,
+            _ => current_game_state,
         };
 
+        // current_game_state = match (current_game_state.clone(), message) {
+        //     (
+        //         HanabiGame::Lobby { players, .. },
+        //         Ok(ServerToClientMessage::GameStarted {
+        //             game_state,
+        //             player_index,
+        //         }),
+        //     ) => {
+        //         current_player = player_index;
+        //         HanabiGame::Started {
+        //             game_state,
+        //             players,
+        //         }
+        //     }
+        //     (
+        //         HanabiGame::Started { players, .. },
+        //         Ok(ServerToClientMessage::UpdatedGameState(game_state)),
+        //     ) => HanabiGame::Started {
+        //         game_state,
+        //         players,
+        //     },
+        //     (
+        //         HanabiGame::Lobby { log, .. } | HanabiGame::Connecting { log, .. },
+        //         Ok(ServerToClientMessage::PlayerJoined { players }),
+        //     ) => HanabiGame::Lobby {
+        //         players: players.clone(),
+        //         log: Vec::from_iter(log.into_iter().chain(iter::once(
+        //             format!("Player {} joined", players.last().unwrap().clone()).to_string(),
+        //         ))),
+        //     },
+        //     (game, Ok(ServerToClientMessage::Pong(time))) => {
+        //         app.update_connection(SystemTime::now().duration_since(time).unwrap());
+        //         game
+        //     }
+
+        //     (game, Err(TryRecvError::Disconnected)) => {
+        //         // TODO: handle disconnect
+        //         game
+        //     }
+        //     (game, Err(TryRecvError::Empty)) => game,
+
+        //     (game, msg) => {
+        //         // todo warn
+        //         game
+        //     }
+        // };
+
         app.update(current_game_state.clone());
+
+        // write_tx.send(ClientToServerMessage::Ping(SystemTime::now()))?;
     }
 
     // let result: Result<(), Box<dyn Error>> = app.run(&mut terminal);

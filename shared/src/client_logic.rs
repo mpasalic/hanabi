@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
@@ -7,6 +9,31 @@ use crate::model::{
     Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameEffect, GameEvent, GameState,
     GameStateSnapshot, HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
 };
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ConnectionStatus {
+    Connected,
+    Disconnected,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OnlinePlayer {
+    pub name: String,
+    pub connection_status: ConnectionStatus,
+    pub is_host: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum HanabiGame {
+    Lobby {
+        log: Vec<String>,
+        players: Vec<OnlinePlayer>,
+    },
+    Started {
+        players: Vec<OnlinePlayer>,
+        game_state: GameStateSnapshot,
+    },
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ClientToServerMessage {
@@ -19,6 +46,8 @@ pub enum ClientToServerMessage {
         player_index: PlayerIndex,
         action: PlayerAction,
     },
+
+    Ping(SystemTime),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,12 +65,14 @@ pub enum ServerToClientMessage {
     },
     GameStarted {
         player_index: PlayerIndex,
-        game_state: GameStateSnapshot,
+        game_state: HanabiGame,
     },
     // AvailableGames {
     //     open_lobbies: Vec<Lobby>,
     // },
-    UpdatedGameState(GameStateSnapshot),
+    UpdatedGameState(HanabiGame),
+
+    Pong(SystemTime),
 }
 
 #[derive(Debug, Clone)]

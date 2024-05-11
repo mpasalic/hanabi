@@ -15,3 +15,5 @@ shuttle-runtime = "0.44.0"
 tokio = "1.28.2"
 tower-http = { version = "0.5.0", features = ["fs"] }
 shared = { path = "../shared" }
+tokio-stream = "0.1.15"
+anyhow = "1.0.83"

@@ -4,7 +4,12 @@ use crossterm::{
 };
 use ratatui::{style::Stylize, Frame, Terminal};
 use shared::model::*;
-use std::{char::from_digit, iter, ops::ControlFlow, time::Duration};
+use std::{
+    char::from_digit,
+    iter,
+    ops::ControlFlow,
+    time::{Duration, SystemTime},
+};
 use tui_big_text::{BigText, PixelSize};
 
 use shared::model::{ClientPlayerView, GameStateSnapshot};
@@ -102,25 +107,17 @@ static SELECTION_COLOR: Color = Color::Rgb(117, 158, 179);
 // }
 
 #[derive(Debug, Clone)]
-pub enum HanabiGame {
-    Connecting {
-        log: Vec<String>,
-    },
-    Lobby {
-        log: Vec<String>,
-        players: Vec<String>,
-    },
-    Started {
-        players: Vec<String>,
-        game_state: GameStateSnapshot,
-    },
+pub enum HanabiClient {
+    Connecting,
+    Loaded(HanabiGame),
 }
 
 pub struct HanabiApp {
     exit: bool,
     command: CommandState,
     // menu_options: StatefulList,
-    game_state: HanabiGame,
+    game_state: HanabiClient,
+    connection: Option<Duration>,
     // game_state: BrowsingLobby | CreatingGame | GameLobby |
 }
 
@@ -138,14 +135,19 @@ struct GameLayout {
 }
 
 impl HanabiApp {
-    pub fn new(game_state: HanabiGame) -> Self {
+    pub fn new(game_state: HanabiClient) -> Self {
         HanabiApp {
             exit: false,
             command: CommandState {
                 current_command: CommandBuilder::Empty,
             },
             game_state: game_state,
+            connection: None,
         }
+    }
+
+    pub fn update_connection(&mut self, time: Duration) {
+        self.connection = Some(time);
     }
 
     /// runs the application's main loop until the user quits
@@ -161,7 +163,7 @@ impl HanabiApp {
         Ok(())
     }
 
-    pub fn update(&mut self, state: HanabiGame) {
+    pub fn update(&mut self, state: HanabiClient) {
         self.game_state = state;
     }
 
@@ -231,8 +233,8 @@ impl HanabiApp {
 
     fn ui(&mut self, frame: &mut Frame) {
         match &self.game_state {
-            HanabiGame::Connecting { log } => self.connecting_ui(frame),
-            HanabiGame::Lobby { players, log } => {
+            HanabiClient::Connecting => self.connecting_ui(frame),
+            HanabiClient::Loaded(HanabiGame::Lobby { players, log }) => {
                 self.lobby_ui(players, frame);
 
                 self.render_game_log(
@@ -246,13 +248,37 @@ impl HanabiApp {
                     },
                 );
             }
-            HanabiGame::Started {
+            HanabiClient::Loaded(HanabiGame::Started {
                 game_state,
                 players,
-            } => {
+            }) => {
                 self.game_ui(game_state, players, frame);
             }
         }
+
+        // match &self.game_state {
+        //     HanabiGame::Connecting { log } => self.connecting_ui(frame),
+        //      => {
+        //         self.lobby_ui(players, frame);
+
+        //         self.render_game_log(
+        //             log,
+        //             frame,
+        //             Rect {
+        //                 x: 14 * 4 + 2,
+        //                 y: 2,
+        //                 width: frame.size().width - 14 * 4,
+        //                 height: 30,
+        //             },
+        //         );
+        //     }
+        //     HanabiGame::Started {
+        //         game_state,
+        //         players,
+        //     } => {
+        //         self.game_ui(game_state, players, frame);
+        //     }
+        // }
     }
 
     fn connecting_ui(&self, frame: &mut Frame) {
@@ -272,13 +298,27 @@ impl HanabiApp {
         );
     }
 
-    fn lobby_ui(&self, players: &Vec<String>, frame: &mut Frame) {
+    fn lobby_ui(&self, players: &Vec<OnlinePlayer>, frame: &mut Frame) {
         let lobby_block = Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title("Game Lobby");
 
-        let text = Text::from_iter(players.iter().map(|p| p.clone()));
+        let mut contents: Vec<String> = Vec::new();
+
+        let connection = match self.connection {
+            Some(time) => {
+                let elapsed = time.as_millis();
+                format!("Connected. Last ping {}ms", elapsed)
+            }
+            None => "Connecting...".to_string(),
+        };
+        contents.push(connection);
+
+        let content: Vec<_> = players.iter().map(|p| p.name.clone()).collect();
+        contents.extend(content);
+
+        let text = Text::from_iter(contents);
         let players_paragraph = Paragraph::new(text).block(lobby_block);
 
         frame.render_widget(players_paragraph, frame.size());
@@ -434,7 +474,12 @@ impl HanabiApp {
         }
     }
 
-    fn game_ui(&self, game_state: &GameStateSnapshot, players: &Vec<String>, frame: &mut Frame) {
+    fn game_ui(
+        &self,
+        game_state: &GameStateSnapshot,
+        players: &Vec<OnlinePlayer>,
+        frame: &mut Frame,
+    ) {
         let board_rect = Rect {
             x: 2,
             y: 18,
@@ -497,7 +542,7 @@ impl HanabiApp {
         {
             render_player(
                 client,
-                &players[index],
+                &players[index].name,
                 match (game_state.turn, &self.command.current_command) {
                     (PlayerIndex(turn), _) if turn as usize == index => {
                         PlayerRenderState::CurrentTurn
@@ -545,7 +590,7 @@ impl HanabiApp {
             .iter()
             .filter_map(|event| match event.to_owned() {
                 Ev::PlayerAction(PlayerIndex(index), action) => {
-                    let player_name = players[index].clone().white();
+                    let player_name = players[index].name.clone().white();
                     match action {
                         PlayerAction::PlayCard(SlotIndex(card)) => {
                             Some(format!("{} played card #{}", player_name, card))
@@ -559,7 +604,7 @@ impl HanabiApp {
                         ) => Some(format!(
                             "{} gave a hint on {}'s {}",
                             player_name,
-                            players[hinted_player].clone().white(),
+                            players[hinted_player].name.clone().white(),
                             face.key().bold()
                         )),
                         PlayerAction::GiveHint(
@@ -568,7 +613,7 @@ impl HanabiApp {
                         ) => Some(format!(
                             "{} gave a hint on {}'s {}",
                             player_name,
-                            players[hinted_player].clone().white(),
+                            players[hinted_player].name.clone().white(),
                             suit.key().fg(colorize_suit(suit)).bold()
                         )),
                     }
@@ -579,7 +624,7 @@ impl HanabiApp {
                         face.key().fg(colorize_suit(suit)).bold()
                     )),
                     GameEffect::DrawCard(PlayerIndex(player), _) => {
-                        Some(format!("{} drew a card", players[player]))
+                        Some(format!("{} drew a card", players[player].name))
                     }
                     GameEffect::RemoveCard(PlayerIndex(player), SlotIndex(index)) => None,
                     GameEffect::PlaceOnBoard(Card { face, suit }) => {
@@ -590,7 +635,7 @@ impl HanabiApp {
                     GameEffect::IncHint => Some("+1 hint".to_string()),
                     GameEffect::BurnFuse => Some("-1 fuse".to_string()),
                     GameEffect::NextTurn(PlayerIndex(player)) => {
-                        Some(format!("{}'s turn", players[player]))
+                        Some(format!("{}'s turn", players[player].name))
                     }
                 },
             })
@@ -868,41 +913,43 @@ impl HanabiApp {
         frame.render_widget(Line::from_iter(lines.into_iter()), area);
     }
 
-    fn legend_for_command_state(&self, game_state: &HanabiGame) -> Vec<LegendItem> {
+    fn legend_for_command_state(&self, game_state: &HanabiClient) -> Vec<LegendItem> {
         use KeyCode::*;
         match game_state {
-            HanabiGame::Connecting { .. } => {
+            HanabiClient::Connecting { .. } => {
                 return vec![LegendItem {
                     desc: format!("Quit"),
                     key_code: KeyCode::Esc,
                     action: AppAction::Quit,
                 }];
             }
-            HanabiGame::Lobby { players, .. } => {
-                return vec![
-                    LegendItem {
-                        desc: format!("Leave"),
-                        key_code: KeyCode::Esc,
-                        action: AppAction::Quit,
-                    },
-                    LegendItem {
-                        desc: format!("Start Game"),
-                        key_code: Char('s'),
-                        action: AppAction::Start,
-                    },
-                ];
-            }
-            HanabiGame::Started {
-                game_state,
-                players,
-            } => self.legend_for_command_state_game(game_state, players),
+            HanabiClient::Loaded(game_state) => match game_state {
+                HanabiGame::Lobby { players, .. } => {
+                    return vec![
+                        LegendItem {
+                            desc: format!("Leave"),
+                            key_code: KeyCode::Esc,
+                            action: AppAction::Quit,
+                        },
+                        LegendItem {
+                            desc: format!("Start Game"),
+                            key_code: Char('s'),
+                            action: AppAction::Start,
+                        },
+                    ];
+                }
+                HanabiGame::Started {
+                    game_state,
+                    players,
+                } => self.legend_for_command_state_game(game_state, players),
+            },
         }
     }
 
     fn legend_for_command_state_game(
         &self,
         game_state: &GameStateSnapshot,
-        players: &Vec<String>,
+        players: &Vec<OnlinePlayer>,
     ) -> Vec<LegendItem> {
         if let Some(outcome) = &game_state.outcome {
             return vec![LegendItem {
@@ -949,7 +996,7 @@ impl HanabiApp {
             CommandBuilder::Hint(HintState::ChoosingPlayer) => (0..game_state.players.len())
                 .filter(|&index| game_state.turn.0 != index)
                 .map(|index| LegendItem {
-                    desc: format!("{}", players[index]),
+                    desc: format!("{}", players[index].name),
                     key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
                     action: AppAction::GameAction(GameAction::SelectPlayer {
                         player_index: index as u8,
