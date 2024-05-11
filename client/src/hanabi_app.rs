@@ -131,6 +131,12 @@ pub enum EventHandlerResult {
     Start,
 }
 
+struct GameLayout {
+    players: Vec<Rect>,
+    board: Rect,
+    game_log: Rect,
+}
+
 impl HanabiApp {
     pub fn new(game_state: HanabiGame) -> Self {
         HanabiApp {
@@ -288,8 +294,207 @@ impl HanabiApp {
         );
     }
 
+    fn layout(&self, players: usize, frame: &mut Frame) -> GameLayout {
+        use taffy::prelude::*;
+
+        use taffy::prelude;
+
+        // First create an instance of TaffyTree
+        let mut tree: TaffyTree<()> = TaffyTree::new();
+
+        // Create a tree of nodes using `TaffyTree.new_leaf` and `TaffyTree.new_with_children`.
+        // These functions both return a node id which can be used to refer to that node
+        // The Style struct is used to specify styling information
+        let board_node = tree
+            .new_leaf(Style {
+                size: Size {
+                    width: length(14.0 * 4.0),
+                    height: length(14.0),
+                },
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                max_size: Size {
+                    width: auto(),
+                    height: length(14.0),
+                },
+                ..Default::default()
+            })
+            .unwrap();
+
+        let player_nodes = (0..players)
+            .into_iter()
+            .map(|_| {
+                tree.new_leaf(Style {
+                    size: Size {
+                        width: length(14.0),
+                        height: length(16.0),
+                    },
+                    flex_grow: 0.0,
+                    ..Default::default()
+                })
+                .unwrap()
+            })
+            .collect_vec();
+
+        let player_container_node = tree
+            .new_with_children(
+                Style {
+                    flex_direction: FlexDirection::Row,
+                    justify_content: Some(JustifyContent::Center),
+                    size: Size {
+                        width: auto(),
+                        height: auto(),
+                    },
+                    ..Default::default()
+                },
+                player_nodes.as_slice(),
+            )
+            .unwrap();
+
+        let left_pane = tree
+            .new_with_children(
+                Style {
+                    flex_direction: FlexDirection::Column,
+                    size: Size {
+                        width: auto(),
+                        height: auto(),
+                    },
+                    ..Default::default()
+                },
+                &[player_container_node, board_node],
+            )
+            .unwrap();
+
+        let game_log = tree
+            .new_leaf(Style {
+                size: Size {
+                    width: auto(),
+                    height: auto(),
+                },
+                flex_grow: 1.0,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let root_node = tree
+            .new_with_children(
+                Style {
+                    flex_direction: FlexDirection::Row,
+                    size: Size {
+                        width: length(frame.size().width as f32),
+                        height: length(frame.size().height as f32),
+                    },
+                    ..Default::default()
+                },
+                &[left_pane, game_log],
+            )
+            .unwrap();
+
+        // Call compute_layout on the root of your tree to run the layout algorithm
+        tree.compute_layout(
+            root_node,
+            Size {
+                width: length(frame.size().width as f32),
+                height: length(frame.size().height as f32),
+            },
+        )
+        .unwrap();
+
+        GameLayout {
+            players: player_nodes
+                .iter()
+                .map(|p| {
+                    let layout = tree.layout(*p).unwrap();
+                    ratatui::layout::Rect {
+                        x: layout.location.x as u16,
+                        y: layout.location.y as u16,
+                        width: layout.size.width as u16,
+                        height: layout.size.height as u16,
+                    }
+                })
+                .collect(),
+            board: tree
+                .layout(board_node)
+                .map(|b| ratatui::layout::Rect {
+                    x: b.location.x as u16,
+                    y: b.location.y as u16,
+                    width: b.size.width as u16,
+                    height: b.size.height as u16,
+                })
+                .unwrap(),
+            game_log: tree
+                .layout(game_log)
+                .map(|b| ratatui::layout::Rect {
+                    x: b.location.x as u16,
+                    y: b.location.y as u16,
+                    width: b.size.width as u16,
+                    height: b.size.height as u16,
+                })
+                .unwrap(),
+        }
+    }
+
     fn game_ui(&self, game_state: &GameStateSnapshot, players: &Vec<String>, frame: &mut Frame) {
-        for (index, client) in game_state.players.iter().enumerate() {
+        let board_rect = Rect {
+            x: 2,
+            y: 18,
+            width: 14 * 4,
+            height: 14,
+        };
+
+        let player_rect = Rect {
+            x: 0,
+            y: 0,
+            width: 14,
+            height: 16,
+        };
+
+        let layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(
+                [
+                    Constraint::Length(players.len() as u16 * player_rect.width),
+                    Constraint::Min(1),
+                ]
+                .into_iter(),
+            )
+            .split(frame.size());
+
+        let left_pane = layout[0];
+        let right_pane = layout[1];
+
+        let bottom_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(
+                [
+                    Constraint::Length(player_rect.height),
+                    Constraint::Length(board_rect.height),
+                ]
+                .into_iter(),
+            )
+            .split(left_pane);
+
+        let player_area_rect = bottom_layout[0];
+        let board_area_rect = bottom_layout[1];
+
+        // let outer_layout = Layout::default()
+        //     .direction(Direction::Vertical)
+        //     .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+        //     .split(f.size());
+
+        // let inner_layout = Layout::default()
+        //     .direction(Direction::Horizontal)
+        //     .constraints(vec![Constraint::Percentage(25), Constraint::Percentage(75)])
+        //     .split(outer_layout[1]);
+
+        let game_layout = self.layout(players.len(), frame);
+
+        for (index, (client, layout)) in game_state
+            .players
+            .iter()
+            .zip(game_layout.players)
+            .enumerate()
+        {
             render_player(
                 client,
                 &players[index],
@@ -308,25 +513,17 @@ impl HanabiApp {
                     _ => PlayerRenderState::Default,
                 },
                 frame,
-                Rect {
-                    x: 2 + 14 * index as u16,
-                    y: 2,
-                    width: 4 * 3 + 2,
-                    height: 16,
-                },
+                layout,
+                // Rect {
+                //     x: 2 + 14 * index as u16,
+                //     y: 2,
+                //     width: 4 * 3 + 2,
+                //     height: 16,
+                // },
             );
         }
 
-        self.render_board(
-            game_state,
-            frame,
-            Rect {
-                x: 2,
-                y: 18,
-                width: 14 * 4,
-                height: 14,
-            },
-        );
+        self.render_board(game_state, frame, game_layout.board);
 
         // frame.render_widget(
         //     Paragraph::new("1".white()).bg(Color::Cyan),
@@ -411,16 +608,7 @@ impl HanabiApp {
         //     .chain(outcome_lines.into_iter())
         //     .collect_vec();
 
-        self.render_game_log(
-            &log_lines,
-            frame,
-            Rect {
-                x: 14 * 4 + 2,
-                y: 2,
-                width: frame.size().width - 14 * 4,
-                height: 30,
-            },
-        );
+        self.render_game_log(&log_lines, frame, game_layout.game_log);
 
         // frame.render_stateful_widget(
         //     ActionPicker {},
@@ -630,16 +818,16 @@ impl HanabiApp {
 
         frame.render_widget(log, area);
 
-        render_title(
-            frame,
-            Rect {
-                x: area.x - 3,
-                y: area.y + 1,
-                width: area.width,
-                height: area.height - 5,
-            },
-        )
-        .expect("big text error");
+        // render_title(
+        //     frame,
+        //     Rect {
+        //         x: area.x - 3,
+        //         y: area.y + 1,
+        //         width: area.width,
+        //         height: area.height - 5,
+        //     },
+        // )
+        // .expect("big text error");
     }
 
     pub fn render_game_actions(&self, frame: &mut Frame, area: Rect) {

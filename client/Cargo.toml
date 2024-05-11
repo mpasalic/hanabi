@@ -34,3 +34,4 @@ tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
 url = "2.5.0"
 futures-channel = "0.3.30"
 tui-input = "0.8.0"
+taffy = "0.4.3"
