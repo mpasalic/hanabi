@@ -315,7 +315,7 @@ impl HanabiApp {
         );
     }
 
-    fn layout(&self, players: usize, frame: &mut Frame) -> GameLayout {
+    fn layout(&self, players: usize, hand_size: usize, frame: &mut Frame) -> GameLayout {
         use taffy::prelude::*;
 
         // First create an instance of TaffyTree
@@ -345,7 +345,7 @@ impl HanabiApp {
             .map(|_| {
                 tree.new_leaf(Style {
                     size: Size {
-                        width: length(14.0),
+                        width: length(hand_size as f32 * 3.0 + 2.0),
                         height: length(16.0),
                     },
                     flex_grow: 0.0,
@@ -511,7 +511,7 @@ impl HanabiApp {
         //     .constraints(vec![Constraint::Percentage(25), Constraint::Percentage(75)])
         //     .split(outer_layout[1]);
 
-        let game_layout = self.layout(players.len(), frame);
+        let game_layout = self.layout(players.len(), game_state.game_config.hand_size, frame);
 
         for (index, (client, layout)) in game_state
             .players
@@ -1256,6 +1256,14 @@ fn render_player(
     frame.render_widget(player_block, area);
 
     for index in 0..num_cards {
+        let has_card = match &player {
+            ClientPlayerView::Me { hand } => hand[index].is_some(),
+            ClientPlayerView::Teammate { hand } => hand[index].is_some(),
+        };
+        if !has_card {
+            continue;
+        }
+
         let hints = match &player {
             ClientPlayerView::Me { hand } => hand[index].as_ref().map(|h| h.hints.as_slice()),
             ClientPlayerView::Teammate { hand } => hand[index].as_ref().map(|h| h.hints.as_slice()),

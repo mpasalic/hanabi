@@ -52,6 +52,7 @@ pub struct GameState {
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
     pub history: Vec<GameEffect>,
+    pub game_config: GameConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -74,6 +75,7 @@ pub struct GameStateSnapshot {
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
     pub log: Vec<GameEvent>,
+    pub game_config: GameConfig,
     // TODO
     // Player names
     //  - Connection status (eventually)

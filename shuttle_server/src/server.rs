@@ -226,9 +226,18 @@ impl LobbyServer {
                         status: status @ GameLobbyStatus::Waiting,
                         ..
                     }) => {
+                        let num_players = players.len();
                         let new_game = GameLog::new(GameConfig {
-                            num_players: players.len(),
-                            hand_size: 4,
+                            num_players: num_players,
+                            hand_size: match num_players {
+                                2 | 3 => 5,
+                                4 | 5 => 4,
+                                np => {
+                                    return Err(LobbyError::InvalidState(format!(
+                                        "Invalid number of players: {np}"
+                                    )))
+                                }
+                            },
                             num_fuses: 3,
                             num_hints: 8,
                             starting_player: PlayerIndex(0),

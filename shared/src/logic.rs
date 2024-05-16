@@ -25,10 +25,11 @@ impl GameState {
             turn: config.starting_player.0 as u8,
             outcome: None,
             history: Vec::new(),
+            game_config: config.clone(),
         };
 
         use GameEffect::*;
-        let init_effects = (0..4)
+        let init_effects = (0..config.hand_size)
             .flat_map(move |slot_index| {
                 (0..config.num_players).map(move |player_index| {
                     DrawCard(PlayerIndex(player_index), SlotIndex(slot_index))

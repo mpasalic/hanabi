@@ -293,6 +293,7 @@ impl GameLog {
             num_rounds: game_state.turn,
             last_turn: game_state.last_turn,
             outcome: game_state.outcome,
+            game_config: game_state.game_config,
         }
     }
 }
