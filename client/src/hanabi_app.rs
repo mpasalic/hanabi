@@ -4,12 +4,7 @@ use crossterm::{
 };
 use ratatui::{style::Stylize, Frame, Terminal};
 use shared::model::*;
-use std::{
-    char::from_digit,
-    iter,
-    ops::ControlFlow,
-    time::{Duration, SystemTime},
-};
+use std::{char::from_digit, iter, time::Duration};
 use tui_big_text::{BigText, PixelSize};
 
 use shared::model::{ClientPlayerView, GameStateSnapshot};
@@ -144,10 +139,6 @@ impl HanabiApp {
             game_state: game_state,
             connection: None,
         }
-    }
-
-    pub fn update_connection(&mut self, time: Duration) {
-        self.connection = Some(time);
     }
 
     /// runs the application's main loop until the user quits
@@ -327,8 +318,6 @@ impl HanabiApp {
     fn layout(&self, players: usize, frame: &mut Frame) -> GameLayout {
         use taffy::prelude::*;
 
-        use taffy::prelude;
-
         // First create an instance of TaffyTree
         let mut tree: TaffyTree<()> = TaffyTree::new();
 
@@ -470,47 +459,47 @@ impl HanabiApp {
         players: &Vec<OnlinePlayer>,
         frame: &mut Frame,
     ) {
-        let board_rect = Rect {
-            x: 2,
-            y: 18,
-            width: 14 * 4,
-            height: 14,
-        };
+        // let board_rect = Rect {
+        //     x: 2,
+        //     y: 18,
+        //     width: 14 * 4,
+        //     height: 14,
+        // };
 
-        let player_rect = Rect {
-            x: 0,
-            y: 0,
-            width: 14,
-            height: 16,
-        };
+        // let player_rect = Rect {
+        //     x: 0,
+        //     y: 0,
+        //     width: 14,
+        //     height: 16,
+        // };
 
-        let layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(
-                [
-                    Constraint::Length(players.len() as u16 * player_rect.width),
-                    Constraint::Min(1),
-                ]
-                .into_iter(),
-            )
-            .split(frame.size());
+        // let layout = Layout::default()
+        //     .direction(Direction::Horizontal)
+        //     .constraints(
+        //         [
+        //             Constraint::Length(players.len() as u16 * player_rect.width),
+        //             Constraint::Min(1),
+        //         ]
+        //         .into_iter(),
+        //     )
+        //     .split(frame.size());
 
-        let left_pane = layout[0];
-        let right_pane = layout[1];
+        // let left_pane = layout[0];
+        // let right_pane = layout[1];
 
-        let bottom_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(
-                [
-                    Constraint::Length(player_rect.height),
-                    Constraint::Length(board_rect.height),
-                ]
-                .into_iter(),
-            )
-            .split(left_pane);
+        // let bottom_layout = Layout::default()
+        //     .direction(Direction::Horizontal)
+        //     .constraints(
+        //         [
+        //             Constraint::Length(player_rect.height),
+        //             Constraint::Length(board_rect.height),
+        //         ]
+        //         .into_iter(),
+        //     )
+        //     .split(left_pane);
 
-        let player_area_rect = bottom_layout[0];
-        let board_area_rect = bottom_layout[1];
+        // let player_area_rect = bottom_layout[0];
+        // let board_area_rect = bottom_layout[1];
 
         // let outer_layout = Layout::default()
         //     .direction(Direction::Vertical)
@@ -616,11 +605,11 @@ impl HanabiApp {
                     GameEffect::DrawCard(PlayerIndex(player), _) => {
                         Some(format!("{} drew a card", players[player].name))
                     }
-                    GameEffect::RemoveCard(PlayerIndex(player), SlotIndex(index)) => None,
+                    GameEffect::RemoveCard(_, _) => None,
                     GameEffect::PlaceOnBoard(Card { face, suit }) => {
                         Some(format!("{}{} added to the board", suit.key(), face.key()))
                     }
-                    GameEffect::HintCard(PlayerIndex(index), _, hint) => None,
+                    GameEffect::HintCard(_, _, _) => None,
                     GameEffect::DecHint => None,
                     GameEffect::IncHint => Some("+1 hint".to_string()),
                     GameEffect::BurnFuse => Some("-1 fuse".to_string()),
@@ -837,11 +826,6 @@ impl HanabiApp {
             .border_type(BorderType::Rounded)
             .title("Game Log");
         let log_color = Color::Gray;
-
-        let initial: Vec<Span> = vec![
-            Span::from("Game Start").style(Style::default().fg(log_color)),
-            Span::from("Player #0's turn").style(Style::default().fg(log_color)),
-        ];
 
         let lines: Vec<Span> = log
             .iter()

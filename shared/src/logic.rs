@@ -6,8 +6,6 @@ use crate::model::{
     Card, CardFace, CardSuit, GameConfig, GameEffect, GameOutcome, GameState, Hint, HintAction,
     PlayedCardResult, Player, PlayerAction, PlayerIndex, Slot, SlotIndex,
 };
-use rand::prelude::*;
-use rand_chacha::ChaCha8Rng;
 
 impl GameState {
     pub fn start(config: &GameConfig) -> Result<GameState, String> {
@@ -45,7 +43,7 @@ impl GameState {
     // precondition: assumes the the action was taken by the current player
     pub fn play(&self, action: PlayerAction) -> Result<Vec<GameEffect>, String> {
         if let Some(outcome) = &self.outcome {
-            return Err("Game is already over".to_string());
+            return Err(format!("Game is already over: {:?}", outcome));
         }
 
         use GameEffect::*;

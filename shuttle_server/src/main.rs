@@ -9,32 +9,30 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use futures::{FutureExt, SinkExt, StreamExt};
+use futures::{FutureExt, StreamExt};
 use shared::client_logic::{ClientToServerMessage, ServerToClientMessage};
 use shuttle_axum::ShuttleAxum;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex};
 use tower_http::services::ServeDir;
 mod server;
-use server::{LobbyClient, LobbyServer, SocketMessage};
+use server::{LobbyClient, LobbyServer};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+
+use crate::server::{ClientId, LobbyError};
 
 struct State {
     clients_count: usize,
-    client_map: HashMap<usize, LobbyClient>,
+    client_map: HashMap<ClientId, LobbyClient>,
     lobby_server: LobbyServer,
-    tx: broadcast::Sender<SocketMessage<Message>>,
 }
 type ServerState = Arc<Mutex<State>>;
 
 #[shuttle_runtime::main]
 async fn axum() -> ShuttleAxum {
-    let (tx, _) = broadcast::channel::<SocketMessage<Message>>(16);
-
     let state = Arc::new(Mutex::new(State {
         clients_count: 0,
         client_map: HashMap::new(),
         lobby_server: LobbyServer::new(),
-        tx,
     }));
 
     let router = Router::new()
@@ -61,9 +59,9 @@ async fn websocket(stream: WebSocket, state: ServerState) {
 
     let client_id = {
         let mut state = state.lock().await;
-        let client_id = state.clients_count;
+        let client_id = ClientId(state.clients_count);
         let new_client = LobbyClient {
-            client_id,
+            client_id: client_id,
             sender: client_sender,
         };
         state.client_map.insert(client_id, new_client);
@@ -77,7 +75,7 @@ async fn websocket(stream: WebSocket, state: ServerState) {
             .map(move |m| {
                 let message = serde_json::to_string(&m).expect("json");
 
-                println!("Sending message to {}: {}", client_id_clone, message);
+                println!("Sending message to {:?}: {}", client_id_clone, message);
                 Ok(Message::Text(message))
             })
             .forward(client_ws_sender)
@@ -92,7 +90,7 @@ async fn websocket(stream: WebSocket, state: ServerState) {
         let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
-                println!("error receiving message for id {}): {}", client_id, e);
+                println!("error receiving message for id {:?}): {}", client_id, e);
                 break;
             }
         };
@@ -134,7 +132,7 @@ async fn websocket(stream: WebSocket, state: ServerState) {
 
     state.lock().await.client_map.remove(&client_id);
     state.lock().await.lobby_server.disconnected(client_id);
-    println!("{} disconnected", client_id);
+    println!("{:?} disconnected", client_id);
 
     // This task will receive watch messages and forward it to this connected client.
     // let mut send_task = tokio::spawn(async move {
@@ -187,10 +185,10 @@ async fn websocket(stream: WebSocket, state: ServerState) {
     //     };
 }
 
-async fn client_msg(client_id: usize, msg: Message, state: &ServerState) {
+async fn client_msg(client_id: ClientId, msg: Message, state: &ServerState) {
     match msg {
         Message::Text(text) => {
-            println!("Got message from client {}: {}", client_id, text);
+            println!("Got message from client {:?}: {}", client_id, text);
 
             let client_to_server_msg: Result<ClientToServerMessage, _> =
                 serde_json::from_str(&text);
@@ -200,9 +198,15 @@ async fn client_msg(client_id: usize, msg: Message, state: &ServerState) {
                 let client = state.client_map.get(&client_id).unwrap().clone();
 
                 // handle result
-                let messages = state
+                let result = state
                     .lobby_server
                     .message_received(&client, client_to_server_msg);
+                match result {
+                    Err(LobbyError::InvalidState(err) | LobbyError::InvalidPlayerAction(err)) => {
+                        println!("error handling message: {:?}", err)
+                    }
+                    _ => {}
+                }
             } else {
                 println!("error parsing message: {:?}", client_to_server_msg);
             }

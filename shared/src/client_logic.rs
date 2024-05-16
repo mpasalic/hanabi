@@ -1,12 +1,10 @@
-use std::time::SystemTime;
-
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 
 use crate::model::{
-    Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameEffect, GameEvent, GameState,
+    Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameEvent, GameState,
     GameStateSnapshot, HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
 };
 
@@ -43,11 +41,8 @@ pub enum ClientToServerMessage {
     },
     StartGame,
     PlayerAction {
-        player_index: PlayerIndex,
         action: PlayerAction,
     },
-
-    Ping(SystemTime),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -60,19 +55,7 @@ struct Lobby {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
 pub enum ServerToClientMessage {
-    PlayerJoined {
-        players: Vec<String>,
-    },
-    GameStarted {
-        player_index: PlayerIndex,
-        game_state: HanabiGame,
-    },
-    // AvailableGames {
-    //     open_lobbies: Vec<Lobby>,
-    // },
     UpdatedGameState(HanabiGame),
-
-    Pong(SystemTime),
 }
 
 #[derive(Debug, Clone)]
@@ -205,7 +188,7 @@ pub fn process_app_action(
         // ----- Undo -----
         (C::Hint(HintState::ChoosingPlayer), A::Undo) => C::Empty,
 
-        (C::Hint(HintState::ChoosingHintType { player_index }), A::Undo) => {
+        (C::Hint(HintState::ChoosingHintType { .. }), A::Undo) => {
             C::Hint(HintState::ChoosingPlayer)
         }
 
