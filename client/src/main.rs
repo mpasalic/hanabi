@@ -3,6 +3,7 @@ mod hanabi_app;
 mod input;
 
 use std::{
+    collections::HashMap,
     env,
     error::Error,
     io::{self, stdout, BufWriter, Read, Stdout, Write},
@@ -36,7 +37,7 @@ use shared::{
 use std::net::TcpStream;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::mpsc::error::TryRecvError,
+    sync::broadcast::error::TryRecvError,
 };
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message, WebSocketStream};
 
@@ -63,6 +64,8 @@ async fn spawn_server_connection(
 
 #[tokio::main]
 async fn main() -> BoxedResult<()> {
+    eprintln!("Starting Hanabi client");
+
     let args: Vec<String> = env::args().collect();
 
     let (host, player_name, session_id) = match args.as_slice() {
@@ -99,56 +102,88 @@ async fn main() -> BoxedResult<()> {
 //     }
 // }
 
-async fn connect_to_game(
+async fn connect_to_server(
     host: String,
     player_name: String,
     session_id: String,
 ) -> BoxedResult<(
-    tokio::sync::mpsc::UnboundedSender<ClientToServerMessage>,
-    tokio::sync::mpsc::UnboundedReceiver<ServerToClientMessage>,
+    tokio::sync::broadcast::Sender<ClientToServerMessage>,
+    tokio::sync::broadcast::Receiver<ServerToClientMessage>,
 )> {
-    let (mut send_server, mut from_server): (_, _) = spawn_server_connection(host.clone()).await?;
+    let (write_tx, mut write_rx) = tokio::sync::broadcast::channel::<ClientToServerMessage>(16);
+    let (read_tx, read_rx) = tokio::sync::broadcast::channel::<ServerToClientMessage>(16);
 
-    send_server
-        .send(Message::Text(serde_json::to_string(
-            &ClientToServerMessage::Join {
-                player_name: player_name.clone(),
-                session_id: session_id.clone(),
-            },
-        )?))
-        .await?;
+    {
+        let read_tx = read_tx.clone();
+        tokio::spawn(async move {
+            loop {
+                eprintln!("Reconnecting!!!");
+                let (mut send_server, mut from_server): (_, _) =
+                    spawn_server_connection(host.clone()).await.unwrap();
 
-    let (write_tx, mut write_rx) = tokio::sync::mpsc::unbounded_channel::<ClientToServerMessage>();
-    tokio::spawn(async move {
-        loop {
-            let message = write_rx.recv().await.unwrap();
-            send_server
-                .send(Message::Text(serde_json::to_string(&message).unwrap()))
-                .await
-                .unwrap();
-        }
-    });
+                send_server
+                    .send(Message::Text(
+                        serde_json::to_string(&ClientToServerMessage::Join {
+                            player_name: player_name.clone(),
+                            session_id: session_id.clone(),
+                        })
+                        .unwrap(),
+                    ))
+                    .await
+                    .unwrap();
 
-    let (read_tx, read_rx) = tokio::sync::mpsc::unbounded_channel::<ServerToClientMessage>();
-    tokio::spawn(async move {
-        loop {
-            let message = from_server.next().await;
-            match message {
-                Some(Ok(Message::Text(text))) => {
-                    read_tx.send(serde_json::from_str(&text).unwrap()).unwrap();
+                let from_server_handle = {
+                    let read_tx: tokio::sync::broadcast::Sender<ServerToClientMessage> =
+                        read_tx.clone();
+                    tokio::spawn(async move {
+                        loop {
+                            let message = from_server.next().await.unwrap().unwrap();
+                            match message {
+                                Message::Text(text) => {
+                                    read_tx.send(serde_json::from_str(&text).unwrap()).unwrap();
+                                }
+                                _ => {}
+                            }
+                        }
+                    })
+                };
+
+                let to_server_handle = {
+                    let mut write_rx = write_rx.resubscribe();
+                    tokio::spawn(async move {
+                        loop {
+                            let message = write_rx.recv().await.unwrap();
+                            send_server
+                                .send(Message::Text(serde_json::to_string(&message).unwrap()))
+                                .await
+                                .unwrap();
+
+                            send_server.close().await.unwrap();
+                        }
+                    })
+                };
+
+                tokio::select! {
+                    _ = from_server_handle => {
+                        eprintln!("from_server_handle thread died!");
+                    }
+                    _ = to_server_handle => {
+                        eprintln!("to_server_handle thread died!");
+                    }
                 }
-                _ => {}
             }
-        }
-    });
+        });
+    }
 
     Ok((write_tx, read_rx))
 }
 
 async fn run_online_game(host: String, player_name: String, session_id: String) -> BoxedResult<()> {
     loop {
-        let connection =
-            connect_to_game(host.clone(), player_name.clone(), session_id.clone()).await?;
+        let connection: (
+            tokio::sync::broadcast::Sender<ClientToServerMessage>,
+            tokio::sync::broadcast::Receiver<ServerToClientMessage>,
+        ) = connect_to_server(host.clone(), player_name.clone(), session_id.clone()).await?;
 
         let mut terminal = setup_terminal()?;
         let result = run(&mut terminal, connection).await;
@@ -170,8 +205,8 @@ async fn run_online_game(host: String, player_name: String, session_id: String) 
 async fn run<T>(
     terminal: &mut Terminal<T>,
     connection: (
-        tokio::sync::mpsc::UnboundedSender<ClientToServerMessage>,
-        tokio::sync::mpsc::UnboundedReceiver<ServerToClientMessage>,
+        tokio::sync::broadcast::Sender<ClientToServerMessage>,
+        tokio::sync::broadcast::Receiver<ServerToClientMessage>,
     ),
 ) -> BoxedResult<()>
 where
@@ -185,7 +220,7 @@ where
     let mut app = HanabiApp::new(current_game_state.clone());
 
     loop {
-        app.run(terminal)?;
+        app.draw(terminal)?;
         let result = app.handle_events()?;
 
         match result {
@@ -218,7 +253,7 @@ where
                 }
                 ServerToClientMessage::Pong(_) => current_game_state,
             },
-            Err(e @ TryRecvError::Disconnected) => {
+            Err(e @ TryRecvError::Closed) => {
                 return Err(Box::new(e));
             }
             Err(TryRecvError::Empty) => current_game_state,

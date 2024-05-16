@@ -151,7 +151,7 @@ impl HanabiApp {
     }
 
     /// runs the application's main loop until the user quits
-    pub fn run<T>(&mut self, terminal: &mut Terminal<T>) -> BoxedResult<()>
+    pub fn draw<T>(&mut self, terminal: &mut Terminal<T>) -> BoxedResult<()>
     where
         T: ratatui::backend::Backend,
     {
@@ -165,16 +165,6 @@ impl HanabiApp {
 
     pub fn update(&mut self, state: HanabiClient) {
         self.game_state = state;
-    }
-
-    /// runs the application's main loop until the user quits
-    pub fn draw<T>(&mut self, terminal: &mut Terminal<T>) -> BoxedResult<()>
-    where
-        T: ratatui::backend::Backend,
-    {
-        terminal.draw(|frame| self.ui(frame))?;
-
-        Ok(())
     }
 
     pub fn handle_events(&mut self) -> BoxedResult<EventHandlerResult> {
@@ -196,6 +186,7 @@ impl HanabiApp {
                             }) => {
                                 let (builder, player_action) =
                                     process_app_action(self.command.clone(), game_action);
+                                self.command = builder;
                                 match player_action {
                                     Some(action) => {
                                         return Ok(EventHandlerResult::PlayerAction(action));
@@ -204,7 +195,6 @@ impl HanabiApp {
                                     }
                                     _ => {}
                                 }
-                                self.command = builder;
                             }
                             Some(LegendItem {
                                 action: AppAction::Quit,
