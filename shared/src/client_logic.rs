@@ -198,6 +198,9 @@ pub fn process_app_action(
             A::Undo,
         ) => C::Hint(HintState::ChoosingHintType { player_index }),
 
+        (C::Play(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
+        (C::Discard(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
+
         // ------ other wise do nothing -------
         (builder, _) => builder,
     };
