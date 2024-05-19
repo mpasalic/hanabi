@@ -31,6 +31,11 @@ pub enum HanabiGame {
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
     },
+    Ended {
+        players: Vec<OnlinePlayer>,
+        game_state: GameStateSnapshot,
+        revealed_game_state: GameState,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

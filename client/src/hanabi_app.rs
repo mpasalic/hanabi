@@ -233,7 +233,15 @@ impl HanabiApp {
                 game_state,
                 players,
             }) => {
-                self.game_ui(game_state, players, frame);
+                self.game_ui(game_state, None, players, frame);
+            }
+
+            HanabiClient::Loaded(HanabiGame::Ended {
+                players,
+                game_state,
+                revealed_game_state,
+            }) => {
+                self.game_ui(game_state, Some(revealed_game_state), players, frame);
             }
         }
 
@@ -456,6 +464,7 @@ impl HanabiApp {
     fn game_ui(
         &self,
         game_state: &GameStateSnapshot,
+        full_game_state: Option<&GameState>,
         players: &Vec<OnlinePlayer>,
         frame: &mut Frame,
     ) {
@@ -562,63 +571,111 @@ impl HanabiApp {
         //     }, //layout[0][0],
         // );
 
-        use shared::model::GameEffect as Eff;
-        use shared::model::GameEvent as Ev;
-        let log_lines: Vec<String> = game_state
-            .log
+        let log_lines = generate_game_log(game_state, players);
+
+        // let outcome_lines = match &game_state.outcome {
+        //     Some(outcome) => vec![Span::from(format!("Game Over: {:?}", outcome))
+        //         .style(Style::default().fg(log_color))],
+        //     None => vec![],
+        // };
+
+        // let lines = initial
+        //     .into_iter()
+        //     .chain(lines.into_iter())
+        //     .chain(outcome_lines.into_iter())
+        //     .collect_vec();
+
+        self.render_game_log(&log_lines, frame, game_layout.game_log);
+
+        // frame.render_stateful_widget(
+        //     ActionPicker {},
+        //     Rect {
+        //         x: 14 * 4 + 2,
+        //         y: 30 + 2,
+        //         width: frame.size().width - 14 * 4,
+        //         height: 1,
+        //     },
+        //     &mut state,
+        // );
+
+        self.render_game_actions(
+            frame,
+            Rect {
+                x: 14 * 4 + 2,
+                y: 30 + 2,
+                width: frame.size().width - 14 * 4,
+                height: 1,
+            },
+        );
+
+        // render_borders(&paragraph, Borders::ALL, frame, layout[0][1]);
+        // render_borders(&paragraph, Borders::NONE, frame, layout[0][1]);
+        // render_borders(&paragraph, Borders::LEFT, frame, layout[1][0]);
+        // render_borders(&paragraph, Borders::RIGHT, frame, layout[1][1]);
+        // render_borders(&paragraph, Borders::TOP, frame, layout[2][0]);
+        // render_borders(&paragraph, Borders::BOTTOM, frame, layout[2][1]);
+
+        // render_border_type(&paragraph, BorderType::Plain, frame, layout[3][0]);
+        // render_border_type(&paragraph, BorderType::Rounded, frame, layout[3][1]);
+        // render_border_type(&paragraph, BorderType::Double, frame, layout[4][0]);
+        // render_border_type(&paragraph, BorderType::Thick, frame, layout[4][1]);
+
+        // render_styled_block(&paragraph, frame, layout[5][0]);
+        // render_styled_borders(&paragraph, frame, layout[5][1]);
+        // render_styled_title(&paragraph, frame, layout[6][0]);
+        // render_styled_title_content(&paragraph, frame, layout[6][1]);
+        // render_multiple_titles(&paragraph, frame, layout[7][0]);
+        // render_multiple_title_positions(&paragraph, frame, layout[7][1]);
+        // render_padding(&paragraph, frame, layout[8][0]);
+        // render_nested_blocks(&paragraph, frame, layout[8][1]);
+    }
+
+    fn endgame_ui(
+        &self,
+        game_state: &GameStateSnapshot,
+        revealed_game_state: &GameState,
+        players: &Vec<OnlinePlayer>,
+        frame: &mut Frame,
+    ) {
+        let game_layout = self.layout(players.len(), game_state.game_config.hand_size, frame);
+
+        for (index, (client, layout)) in game_state
+            .players
             .iter()
-            .filter_map(|event| match event.to_owned() {
-                Ev::PlayerAction(PlayerIndex(index), action) => {
-                    let player_name = players[index].name.clone().white();
-                    match action {
-                        PlayerAction::PlayCard(SlotIndex(card)) => {
-                            Some(format!("{} played card #{}", player_name, card))
-                        }
-                        PlayerAction::DiscardCard(SlotIndex(card)) => {
-                            Some(format!("{} discarded card #{}", player_name, card))
-                        }
-                        PlayerAction::GiveHint(
-                            PlayerIndex(hinted_player),
-                            HintAction::SameFace(face),
-                        ) => Some(format!(
-                            "{} gave a hint on {}'s {}",
-                            player_name,
-                            players[hinted_player].name.clone().white(),
-                            face.key().bold()
-                        )),
-                        PlayerAction::GiveHint(
-                            PlayerIndex(hinted_player),
-                            HintAction::SameSuit(suit),
-                        ) => Some(format!(
-                            "{} gave a hint on {}'s {}",
-                            player_name,
-                            players[hinted_player].name.clone().white(),
-                            suit.key().fg(colorize_suit(suit)).bold()
-                        )),
-                    }
-                }
-                Ev::GameEffect(effect) => match effect {
-                    Eff::AddToDiscrard(Card { suit, face }) => Some(format!(
-                        "{} added to discard pile",
-                        face.key().fg(colorize_suit(suit)).bold()
-                    )),
-                    GameEffect::DrawCard(PlayerIndex(player), _) => {
-                        Some(format!("{} drew a card", players[player].name))
-                    }
-                    GameEffect::RemoveCard(_, _) => None,
-                    GameEffect::PlaceOnBoard(Card { face, suit }) => {
-                        Some(format!("{}{} added to the board", suit.key(), face.key()))
-                    }
-                    GameEffect::HintCard(_, _, _) => None,
-                    GameEffect::DecHint => None,
-                    GameEffect::IncHint => Some("+1 hint".to_string()),
-                    GameEffect::BurnFuse => Some("-1 fuse".to_string()),
-                    GameEffect::NextTurn(PlayerIndex(player)) => {
-                        Some(format!("{}'s turn", players[player].name))
-                    }
-                },
-            })
-            .collect_vec();
+            .zip(game_layout.players)
+            .enumerate()
+        {
+            render_player(
+                client,
+                &players[index].name,
+                PlayerRenderState::Default,
+                frame,
+                layout,
+                // Rect {
+                //     x: 2 + 14 * index as u16,
+                //     y: 2,
+                //     width: 4 * 3 + 2,
+                //     height: 16,
+                // },
+            );
+        }
+
+        self.render_board(game_state, frame, game_layout.board);
+
+        // frame.render_widget(
+        //     Paragraph::new("1".white()).bg(Color::Cyan),
+        //     // Paragraph::new("card 1".dark_gray())
+        //     //     .wrap(Wrap { trim: true })
+        //     //     .block(player),
+        //     Rect {
+        //         x: 5,
+        //         y: 5,
+        //         width: 1,
+        //         height: 1,
+        //     }, //layout[0][0],
+        // );
+
+        let log_lines = generate_game_log(game_state, players);
 
         // let outcome_lines = match &game_state.outcome {
         //     Some(outcome) => vec![Span::from(format!("Game Over: {:?}", outcome))
@@ -916,6 +973,18 @@ impl HanabiApp {
                     game_state,
                     players,
                 } => self.legend_for_command_state_game(game_state, players),
+
+                HanabiGame::Ended {
+                    players,
+                    game_state,
+                    revealed_game_state,
+                } => {
+                    return vec![LegendItem {
+                        desc: format!("Quit"),
+                        key_code: KeyCode::Esc,
+                        action: AppAction::Quit,
+                    }];
+                }
             },
         }
     }
@@ -1118,6 +1187,67 @@ impl HanabiApp {
             }
         }
     }
+}
+
+fn generate_game_log(game_state: &GameStateSnapshot, players: &Vec<OnlinePlayer>) -> Vec<String> {
+    use shared::model::GameEffect as Eff;
+    use shared::model::GameEvent as Ev;
+    let log_lines: Vec<String> = game_state
+        .log
+        .iter()
+        .filter_map(|event| match event.to_owned() {
+            Ev::PlayerAction(PlayerIndex(index), action) => {
+                let player_name = players[index].name.clone().white();
+                match action {
+                    PlayerAction::PlayCard(SlotIndex(card)) => {
+                        Some(format!("{} played card #{}", player_name, card))
+                    }
+                    PlayerAction::DiscardCard(SlotIndex(card)) => {
+                        Some(format!("{} discarded card #{}", player_name, card))
+                    }
+                    PlayerAction::GiveHint(
+                        PlayerIndex(hinted_player),
+                        HintAction::SameFace(face),
+                    ) => Some(format!(
+                        "{} gave a hint on {}'s {}",
+                        player_name,
+                        players[hinted_player].name.clone().white(),
+                        face.key().bold()
+                    )),
+                    PlayerAction::GiveHint(
+                        PlayerIndex(hinted_player),
+                        HintAction::SameSuit(suit),
+                    ) => Some(format!(
+                        "{} gave a hint on {}'s {}",
+                        player_name,
+                        players[hinted_player].name.clone().white(),
+                        suit.key().fg(colorize_suit(suit)).bold()
+                    )),
+                }
+            }
+            Ev::GameEffect(effect) => match effect {
+                Eff::AddToDiscrard(Card { suit, face }) => Some(format!(
+                    "{} added to discard pile",
+                    face.key().fg(colorize_suit(suit)).bold()
+                )),
+                GameEffect::DrawCard(PlayerIndex(player), _) => {
+                    Some(format!("{} drew a card", players[player].name))
+                }
+                GameEffect::RemoveCard(_, _) => None,
+                GameEffect::PlaceOnBoard(Card { face, suit }) => {
+                    Some(format!("{}{} added to the board", suit.key(), face.key()))
+                }
+                GameEffect::HintCard(_, _, _) => None,
+                GameEffect::DecHint => None,
+                GameEffect::IncHint => Some("+1 hint".to_string()),
+                GameEffect::BurnFuse => Some("-1 fuse".to_string()),
+                GameEffect::NextTurn(PlayerIndex(player)) => {
+                    Some(format!("{}'s turn", players[player].name))
+                }
+            },
+        })
+        .collect_vec();
+    log_lines
 }
 
 pub enum AppAction {
