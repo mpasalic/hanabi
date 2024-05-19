@@ -1,5 +1,6 @@
 use itertools::Itertools;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use strum::IntoEnumIterator;
 
 use crate::model::{
@@ -10,7 +11,7 @@ use crate::model::{
 impl GameState {
     pub fn start(config: &GameConfig) -> Result<GameState, String> {
         let mut game = GameState {
-            draw_pile: new_standard_deck(),
+            draw_pile: new_seeded_deck(config.seed),
             discard_pile: Vec::new(),
             last_turn: None,
             played_cards: Vec::new(),
@@ -370,4 +371,41 @@ pub fn new_standard_deck() -> Vec<Card> {
         deck.swap(index, swap);
     }
     return deck;
+}
+
+pub fn new_seeded_deck(seed: u64) -> Vec<Card> {
+    let mut rand = ChaCha8Rng::seed_from_u64(seed);
+
+    let mut deck: Vec<Card> = CardFace::iter()
+        .flat_map(|face| {
+            CardSuit::iter().flat_map(move |suit| {
+                let num = match face {
+                    CardFace::One => 3,
+                    CardFace::Two | CardFace::Three | CardFace::Four => 2,
+                    CardFace::Five => 1,
+                };
+                vec![Card { suit, face }; num]
+            })
+        })
+        .collect();
+
+    for index in 0..deck.len() {
+        let swap = rand.gen_range(index..deck.len());
+        deck.swap(index, swap);
+    }
+    return deck;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_seeded_deck() {
+        let deck = new_seeded_deck(0);
+
+        let deck_same_seed = new_seeded_deck(0);
+
+        assert_eq!(deck, deck_same_seed);
+    }
 }

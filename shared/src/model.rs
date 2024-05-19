@@ -108,7 +108,7 @@ pub enum HintAction {
     SameFace(CardFace),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Copy)]
 pub enum PlayerAction {
     PlayCard(SlotIndex),
     DiscardCard(SlotIndex),

@@ -40,9 +40,11 @@ pub enum HanabiGame {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ClientToServerMessage {
+    // CreateGame
     Join {
         player_name: String,
         session_id: String,
+        //
     },
     StartGame,
     PlayerAction {
@@ -220,6 +222,7 @@ pub fn process_app_action(
 
 #[derive(Debug, Clone)]
 pub struct GameLog {
+    pub config: GameConfig,
     pub initial: GameState,
     pub log: Vec<(PlayerAction, GameState)>,
     pub history: Vec<GameEvent>,
@@ -228,6 +231,7 @@ pub struct GameLog {
 impl GameLog {
     pub fn new(config: GameConfig) -> Self {
         GameLog {
+            config: config.clone(),
             initial: GameState::start(&config).unwrap(),
             log: vec![],
             history: vec![],
@@ -307,26 +311,3 @@ impl GameLog {
 }
 
 impl GameState {}
-
-pub fn new_seeded_deck(seed: u64) -> Vec<Card> {
-    let mut rand = ChaCha8Rng::seed_from_u64(seed);
-
-    let mut deck: Vec<Card> = CardFace::iter()
-        .flat_map(|face| {
-            CardSuit::iter().flat_map(move |suit| {
-                let num = match face {
-                    CardFace::One => 3,
-                    CardFace::Two | CardFace::Three | CardFace::Four => 2,
-                    CardFace::Five => 1,
-                };
-                vec![Card { suit, face }; num]
-            })
-        })
-        .collect();
-
-    for index in 0..deck.len() {
-        let swap = rand.gen_range(index..deck.len());
-        deck.swap(index, swap);
-    }
-    return deck;
-}

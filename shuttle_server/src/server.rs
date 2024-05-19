@@ -4,8 +4,15 @@ use std::collections::HashMap;
 use shared::client_logic::*;
 use shared::model::GameConfig;
 use shared::model::PlayerIndex;
+use sqlx::PgPool;
 use std::hash::{Hash, Hasher};
 use tokio::sync::mpsc;
+
+use crate::model::create_game;
+use crate::model::get_game_actions;
+use crate::model::get_game_config;
+use crate::model::get_players;
+use crate::model::save_action;
 
 #[derive(Debug, Clone)]
 pub struct LobbyClient {
@@ -147,19 +154,72 @@ impl Hash for SocketPlayer {
 
 pub struct LobbyServer {
     game_lobbies: HashMap<SessionId, GameLobby>,
+    pool: PgPool,
 }
 
 #[derive(Debug)]
 pub enum LobbyError {
     InvalidState(String),
     InvalidPlayerAction(String),
+    SqlError(sqlx::Error),
 }
 
+impl From<sqlx::Error> for LobbyError {
+    fn from(e: sqlx::Error) -> Self {
+        LobbyError::SqlError(e)
+    }
+}
+
+// pub enum Result {
+//     GameCreated(GameConfig, Vec<String>),
+//     PlayedAction(PlayerAction, PlayerIndex, TurnCount),
+// }
+
 impl LobbyServer {
-    pub fn new() -> Self {
+    pub fn new(pool: PgPool) -> Self {
         LobbyServer {
             game_lobbies: HashMap::new(),
+            pool,
         }
+    }
+
+    pub async fn hydrate(&mut self, game_id: &String) -> Result<(), LobbyError> {
+        let game_config = get_game_config(&self.pool, game_id.clone()).await?;
+
+        let game_actions = get_game_actions(&self.pool, game_id.clone()).await?;
+
+        let players = get_players(&self.pool, game_id.clone()).await?;
+
+        let mut game_log = GameLog::new(game_config.clone());
+
+        for action in game_actions {
+            game_log
+                .log(action)
+                .map_err(|e| LobbyError::InvalidState(e))?;
+        }
+
+        let current_state = game_log.current_game_state();
+
+        let game_lobby = GameLobby {
+            session_id: SessionId(game_id.clone()),
+            players: players
+                .iter()
+                .map(|p| SocketPlayer {
+                    name: p.clone(),
+                    connection: ConnectionState::Disconnected,
+                })
+                .collect(),
+            status: match current_state.outcome {
+                Some(_) => GameLobbyStatus::Ended(game_log),
+                None => GameLobbyStatus::Playing(game_log),
+            },
+            log: vec![],
+        };
+
+        self.game_lobbies
+            .insert(SessionId(game_id.clone()), game_lobby);
+
+        Ok(())
     }
 
     fn get_lobby_for_client(&mut self, client: ClientId) -> Option<&mut GameLobby> {
@@ -233,7 +293,7 @@ impl LobbyServer {
         }
     }
 
-    pub fn message_received(
+    pub async fn message_received(
         &mut self,
         client: &LobbyClient,
         message: ClientToServerMessage,
@@ -243,6 +303,24 @@ impl LobbyServer {
                 player_name,
                 session_id,
             } => {
+                if !self
+                    .game_lobbies
+                    .contains_key(&SessionId(session_id.clone()))
+                {
+                    // Should prob have better logic here
+                    // This will be simpler when we have an actual "Create Game" message
+                    let result = self.hydrate(&session_id.clone()).await;
+
+                    match result {
+                        Ok(_) => {
+                            println!("Hydrated game");
+                        }
+                        Err(e) => {
+                            println!("Error hydrating game: {:?}", e);
+                        }
+                    }
+                }
+
                 let game_lobby = self
                     .game_lobbies
                     .entry(SessionId(session_id.clone()))
@@ -270,56 +348,118 @@ impl LobbyServer {
                 game_lobby.update_players();
             }
             ClientToServerMessage::StartGame => {
-                let game_lobby = self.get_lobby_for_client(client.client_id);
+                let session_id = self.get_lobby_session_for_client(client.client_id);
 
-                match game_lobby {
-                    Some(GameLobby {
-                        players,
-                        status: status @ GameLobbyStatus::Waiting,
-                        ..
-                    }) => {
-                        let num_players = players.len();
-                        let new_game = GameLog::new(GameConfig {
-                            num_players: num_players,
-                            hand_size: match num_players {
-                                2 | 3 => 5,
-                                4 | 5 => 4,
-                                np => {
-                                    return Err(LobbyError::InvalidState(format!(
-                                        "Invalid number of players: {np}"
-                                    )))
+                if let Some(session_id) = session_id {
+                    let game_lobby =
+                        self.game_lobbies
+                            .entry(session_id.clone())
+                            .and_modify(|game_lobby| {
+                                let num_players = game_lobby.players.len();
+                                let config = GameConfig {
+                                    num_players: num_players,
+                                    hand_size: match num_players {
+                                        2 | 3 => 5,
+                                        4 | 5 => 4,
+                                        _ => 4, // error?
+                                    },
+                                    num_fuses: 3,
+                                    num_hints: 8,
+                                    starting_player: PlayerIndex(0),
+                                    seed: 0,
+                                };
+                                game_lobby.status =
+                                    GameLobbyStatus::Playing(GameLog::new(config.clone()));
+                            });
+
+                    match game_lobby {
+                        Entry::Occupied(game_lobby_entry) => {
+                            let game_lobby = game_lobby_entry.get();
+
+                            match game_lobby {
+                                GameLobby {
+                                    session_id: SessionId(session_id),
+                                    players,
+                                    status: GameLobbyStatus::Playing(game_log),
+                                    ..
+                                } => {
+                                    create_game(
+                                        &self.pool,
+                                        session_id.clone(),
+                                        &game_log.config,
+                                        &players
+                                            .iter()
+                                            .map(|p| p.name.clone())
+                                            .collect::<Vec<String>>(),
+                                    )
+                                    .await
+                                    .map_err(|e| LobbyError::InvalidState(e.to_string()))?;
                                 }
-                            },
-                            num_fuses: 3,
-                            num_hints: 8,
-                            starting_player: PlayerIndex(0),
-                            seed: 0,
-                        });
-                        *status = GameLobbyStatus::Playing(new_game);
-                    }
-                    Some(GameLobby {
-                        status: GameLobbyStatus::Playing(_) | GameLobbyStatus::Ended(_),
-                        ..
-                    }) => {
-                        return Err(LobbyError::InvalidState(
-                            "Game is already in playing state".to_string(),
-                        ));
-                    }
-                    None => {
-                        return Err(LobbyError::InvalidState(
-                            "Game is not in waiting state".to_string(),
-                        ));
-                    }
-                };
+                                _ => {}
+                            }
 
-                if let Some(game_lobby) = game_lobby {
-                    game_lobby.update_players();
+                            game_lobby.update_players();
+                        }
+                        Entry::Vacant(_) => {}
+                    }
                 }
+
+                // let game_lobby = self.get_lobby_for_client(client.client_id);
+
+                // match game_lobby {
+                //     Some(GameLobby {
+                //         session_id: SessionId(session_id),
+                //         players,
+                //         status: status @ GameLobbyStatus::Waiting,
+                //         ..
+                //     }) => {
+                //         let num_players = players.len();
+                //         let config = GameConfig {
+                //             num_players: num_players,
+                //             hand_size: match num_players {
+                //                 2 | 3 => 5,
+                //                 4 | 5 => 4,
+                //                 np => {
+                //                     return Err(LobbyError::InvalidState(format!(
+                //                         "Invalid number of players: {np}"
+                //                     )))
+                //                 }
+                //             },
+                //             num_fuses: 3,
+                //             num_hints: 8,
+                //             starting_player: PlayerIndex(0),
+                //             seed: 0,
+                //         };
+                //         let new_game = GameLog::new(config.clone());
+                //         *status = GameLobbyStatus::Playing(new_game);
+                //     }
+                //     Some(GameLobby {
+                //         status: GameLobbyStatus::Playing(_) | GameLobbyStatus::Ended(_),
+                //         ..
+                //     }) => {
+                //         return Err(LobbyError::InvalidState(
+                //             "Game is already in playing state".to_string(),
+                //         ));
+                //     }
+                //     None => {
+                //         return Err(LobbyError::InvalidState(
+                //             "Game is not in waiting state".to_string(),
+                //         ));
+                //     }
+                // };
+                // if let Some(game_lobby) = game_lobby {
+                //     game_lobby.update_players();
+                // }
             }
 
             ClientToServerMessage::PlayerAction { action, .. } => {
                 if let Some(game_lobby) = self.get_lobby_for_client(client.client_id) {
                     if let GameLobbyStatus::Playing(ref mut game_log) = game_lobby.status {
+                        let SessionId(session_id) = game_lobby.session_id.clone();
+                        let current_game_state = game_log.current_game_state();
+                        let turn_index = current_game_state.turn;
+                        let PlayerIndex(player_index) = current_game_state.current_player_index();
+
                         let result = game_log
                             .log(action)
                             .map_err(|e| LobbyError::InvalidPlayerAction(e))?
@@ -329,6 +469,10 @@ impl LobbyServer {
                             game_lobby.status = GameLobbyStatus::Ended(game_log.clone());
                         }
                         game_lobby.update_players();
+
+                        save_action(&self.pool, &session_id, turn_index, action, player_index)
+                            .await
+                            .map_err(|e| LobbyError::InvalidState(e.to_string()))?;
                     }
                 }
             }

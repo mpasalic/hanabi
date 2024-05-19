@@ -3,36 +3,44 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        WebSocketUpgrade,
+        Path, State, WebSocketUpgrade,
     },
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Extension, Router,
+    routing::post,
+    Extension, Json, Router,
 };
 use futures::{FutureExt, StreamExt};
 use shared::client_logic::{ClientToServerMessage, ServerToClientMessage};
 use shuttle_axum::ShuttleAxum;
 use tokio::sync::{mpsc, Mutex};
 use tower_http::services::ServeDir;
+mod model;
 mod server;
 use server::{LobbyClient, LobbyServer};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::server::{ClientId, LobbyError};
 
-struct State {
+struct ServerStateSchema {
     clients_count: usize,
     client_map: HashMap<ClientId, LobbyClient>,
     lobby_server: LobbyServer,
 }
-type ServerState = Arc<Mutex<State>>;
+type ServerState = Arc<Mutex<ServerStateSchema>>;
 
 #[shuttle_runtime::main]
-async fn axum() -> ShuttleAxum {
-    let state = Arc::new(Mutex::new(State {
+async fn main(#[shuttle_shared_db::Postgres] pool: PgPool) -> shuttle_axum::ShuttleAxum {
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .map_err(CustomError::new)?;
+
+    let state = Arc::new(Mutex::new(ServerStateSchema {
         clients_count: 0,
         client_map: HashMap::new(),
-        lobby_server: LobbyServer::new(),
+        lobby_server: LobbyServer::new(pool),
     }));
 
     let router = Router::new()
@@ -45,7 +53,7 @@ async fn axum() -> ShuttleAxum {
 
 async fn websocket_handler(
     ws: WebSocketUpgrade,
-    Extension(state): Extension<Arc<Mutex<State>>>,
+    Extension(state): Extension<Arc<Mutex<ServerStateSchema>>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| websocket(socket, state))
 }
@@ -200,7 +208,8 @@ async fn client_msg(client_id: ClientId, msg: Message, state: &ServerState) {
                 // handle result
                 let result = state
                     .lobby_server
-                    .message_received(&client, client_to_server_msg);
+                    .message_received(&client, client_to_server_msg)
+                    .await;
                 match result {
                     Err(LobbyError::InvalidState(err) | LobbyError::InvalidPlayerAction(err)) => {
                         println!("error handling message: {:?}", err)
@@ -213,4 +222,52 @@ async fn client_msg(client_id: ClientId, msg: Message, state: &ServerState) {
         }
         _ => {}
     }
+}
+
+use serde::{Deserialize, Serialize};
+use shuttle_runtime::CustomError;
+use sqlx::{FromRow, PgPool};
+
+async fn retrieve(
+    Path(id): Path<i32>,
+    State(state): State<MyState>,
+) -> Result<impl IntoResponse, impl IntoResponse> {
+    match sqlx::query_as::<_, Todo>("SELECT * FROM todos WHERE id = $1")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+    {
+        Ok(todo) => Ok((StatusCode::OK, Json(todo))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e.to_string())),
+    }
+}
+
+async fn add(
+    State(state): State<MyState>,
+    Json(data): Json<TodoNew>,
+) -> Result<impl IntoResponse, impl IntoResponse> {
+    match sqlx::query_as::<_, Todo>("INSERT INTO todos (note) VALUES ($1) RETURNING id, note")
+        .bind(&data.note)
+        .fetch_one(&state.pool)
+        .await
+    {
+        Ok(todo) => Ok((StatusCode::CREATED, Json(todo))),
+        Err(e) => Err((StatusCode::BAD_REQUEST, e.to_string())),
+    }
+}
+
+#[derive(Clone)]
+struct MyState {
+    pool: PgPool,
+}
+
+#[derive(Deserialize)]
+struct TodoNew {
+    pub note: String,
+}
+
+#[derive(Serialize, FromRow)]
+struct Todo {
+    pub id: i32,
+    pub note: String,
 }
