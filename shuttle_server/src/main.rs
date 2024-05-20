@@ -45,7 +45,7 @@ async fn main(#[shuttle_shared_db::Postgres] pool: PgPool) -> shuttle_axum::Shut
 
     let router = Router::new()
         .route("/websocket", get(websocket_handler))
-        .nest_service("/", ServeDir::new("static"))
+        .nest_service("/", ServeDir::new("dist"))
         .layer(Extension(state));
 
     Ok(router.into())

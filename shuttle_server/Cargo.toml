@@ -18,5 +18,5 @@ shared = { path = "../shared" }
 tokio-stream = "0.1.15"
 anyhow = "1.0.83"
 sqlx = "0.7.1"
-shuttle-shared-db = { version = "0.45.0", features = ["postgres", "sqlx", "diesel-async"] }
+shuttle-shared-db = { version = "0.45.0", features = ["postgres", "sqlx"] }
 rand = "0.8.5"

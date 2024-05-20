@@ -1,7 +1,6 @@
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
-use strum::IntoEnumIterator;
 
 use crate::model::{
     Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameEvent, GameState,

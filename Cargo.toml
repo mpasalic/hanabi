@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "client",
+    "client", "ratatui-app",
     "shared",
-    "shuttle_server",
+    "shuttle_server", "web-client",
 ]
