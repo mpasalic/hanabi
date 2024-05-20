@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+use rand::rngs::StdRng;
 use shared::client_logic::*;
 use shared::model::GameConfig;
 use shared::model::PlayerIndex;
@@ -190,7 +191,7 @@ impl LobbyServer {
 
         let players = get_players(&self.pool, game_id.clone()).await?;
 
-        let mut game_log = GameLog::new(game_config.clone());
+        let mut game_log = GameLog::new::<StdRng>(game_config.clone());
 
         for action in game_actions {
             game_log
@@ -368,8 +369,9 @@ impl LobbyServer {
                                     starting_player: PlayerIndex(0),
                                     seed: 0,
                                 };
-                                game_lobby.status =
-                                    GameLobbyStatus::Playing(GameLog::new(config.clone()));
+                                game_lobby.status = GameLobbyStatus::Playing(
+                                    GameLog::new::<StdRng>(config.clone()),
+                                );
                             });
 
                     match game_lobby {
@@ -478,5 +480,61 @@ impl LobbyServer {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_same_seeded_deck() {
+        let config = GameConfig {
+            num_players: 2,
+            hand_size: 5,
+            num_fuses: 3,
+            num_hints: 8,
+            starting_player: PlayerIndex(0),
+            seed: 0,
+        };
+
+        let deck = GameLog::new::<StdRng>(config.clone());
+
+        let deck_same_seed = GameLog::new::<StdRng>(config.clone());
+
+        assert_eq!(
+            deck.current_game_state().draw_pile,
+            deck_same_seed.current_game_state().draw_pile
+        );
+    }
+
+    #[test]
+    fn test_different_seeded_deck() {
+        let config = GameConfig {
+            num_players: 2,
+            hand_size: 5,
+            num_fuses: 3,
+            num_hints: 8,
+            starting_player: PlayerIndex(0),
+            seed: 0,
+        };
+
+        let deck = GameLog::new::<StdRng>(config.clone());
+
+        let config = GameConfig {
+            num_players: 2,
+            hand_size: 5,
+            num_fuses: 3,
+            num_hints: 8,
+            starting_player: PlayerIndex(0),
+            seed: 1,
+        };
+
+        let deck_same_seed = GameLog::new::<StdRng>(config.clone());
+
+        assert_ne!(
+            deck.current_game_state().draw_pile,
+            deck_same_seed.current_game_state().draw_pile
+        );
     }
 }

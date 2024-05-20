@@ -1,7 +1,4 @@
-use egui::{
-    style::{Selection, WidgetVisuals, Widgets},
-    Event, Visuals,
-};
+use egui::Event;
 use ratatui_app::hanabi_app::*;
 
 pub fn key_code_to_char(value: &Event) -> Option<KeyCode> {
@@ -16,13 +13,7 @@ pub fn key_code_to_char(value: &Event) -> Option<KeyCode> {
                 None
             }
         }
-        Event::Key {
-            key,
-            physical_key,
-            pressed,
-            repeat,
-            modifiers,
-        } => match key {
+        Event::Key { key, .. } => match key {
             egui::Key::ArrowDown => None,
             egui::Key::ArrowLeft => None,
             egui::Key::ArrowRight => None,
@@ -129,32 +120,17 @@ pub fn key_code_to_char(value: &Event) -> Option<KeyCode> {
         },
         Event::PointerMoved(_) => None,
         Event::MouseMoved(_) => None,
-        Event::PointerButton {
-            pos,
-            button,
-            pressed,
-            modifiers,
-        } => None,
+        Event::PointerButton { .. } => None,
         Event::PointerGone => None,
         Event::Scroll(_) => None,
         Event::Zoom(_) => None,
         Event::CompositionStart => None,
         Event::CompositionUpdate(_) => None,
         Event::CompositionEnd(_) => None,
-        Event::Touch {
-            device_id,
-            id,
-            phase,
-            pos,
-            force,
-        } => None,
-        Event::MouseWheel {
-            unit,
-            delta,
-            modifiers,
-        } => None,
+        Event::Touch { .. } => None,
+        Event::MouseWheel { .. } => None,
         Event::WindowFocused(_) => None,
         Event::AccessKitActionRequest(_) => None,
-        Event::Screenshot { viewport_id, image } => None,
+        Event::Screenshot { .. } => None,
     }
 }

@@ -7,7 +7,7 @@ edition = "2021"
 axum = { version = "0.7.3", features = ["ws"] }
 chrono = { version = "0.4.26", features = ["serde"] }
 futures = "0.3.28"
-reqwest = "0.11.23"
+reqwest = { version = "0.12.4", default-features = false, features = ["charset", "http2", "macos-system-configuration", "native-tls-vendored"] }
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.96"
 shuttle-axum = "0.45.0"
@@ -20,3 +20,4 @@ anyhow = "1.0.83"
 sqlx = "0.7.1"
 shuttle-shared-db = { version = "0.45.0", features = ["postgres", "sqlx"] }
 rand = "0.8.5"
+rand_chacha = "0.3.1"

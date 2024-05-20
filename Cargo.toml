@@ -1,6 +1,8 @@
 [workspace]
+resolver = "2"
 members = [
-    "client", "ratatui-app",
+    "ratatui-app",
     "shared",
-    "shuttle_server", "web-client",
+    "shuttle_server",
+    "web-client",
 ]

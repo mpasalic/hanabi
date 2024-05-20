@@ -1,20 +1,12 @@
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Sender};
 
-use egui::{
-    style::{Selection, WidgetVisuals, Widgets},
-    Event, Visuals,
-};
-use ratatui::{
-    prelude::{Stylize, Terminal},
-    widgets::Paragraph,
-};
+use ratatui::prelude::Terminal;
 use ratatui_app::hanabi_app::*;
 use ratframe::NewCC;
 use ratframe::RataguiBackend;
 use shared::client_logic::*;
 use wasm_bindgen::prelude::*;
 use web_sys::{ErrorEvent, MessageEvent, WebSocket};
-use web_time::{Duration, Instant};
 mod input;
 
 use input::key_code_to_char;
@@ -71,7 +63,7 @@ impl Default for HelloApp {
 
         //Creating the Ratatui backend/ Egui widget here
         let backend = RataguiBackend::new(100, 100);
-        let mut terminal = Terminal::new(backend).unwrap();
+        let terminal = Terminal::new(backend).unwrap();
         Self {
             terminal: terminal,
             hanabi_app: HanabiApp::new(HanabiClient::Connecting),
@@ -107,10 +99,6 @@ fn get_params(cc: &eframe::CreationContext<'_>) -> Option<(String, String, Strin
         .unwrap()
         .join("");
 
-    // const proto = location.protocol.startsWith("https") ? "wss" : "ws";
-    // const websocket = new WebSocket(
-    //   `${proto}://${window.location.host}/websocket`
-    // );
     let proto = &cc.integration_info.web_info.location.protocol;
     let host = &cc.integration_info.web_info.location.host;
 
@@ -124,7 +112,7 @@ fn get_params(cc: &eframe::CreationContext<'_>) -> Option<(String, String, Strin
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
-fn get_params(cc: &eframe::CreationContext<'_>) -> Option<(String, String, String)> {
+fn get_params(_cc: &eframe::CreationContext<'_>) -> Option<(String, String, String)> {
     None
 }
 
@@ -165,7 +153,7 @@ impl NewCC for HelloApp {
             "BoldOblique".into(),
         );
 
-        let mut terminal = Terminal::new(backend).unwrap();
+        let terminal = Terminal::new(backend).unwrap();
         Self {
             terminal: terminal,
             hanabi_app: HanabiApp::new(HanabiClient::Connecting),
@@ -192,7 +180,7 @@ impl eframe::App for HelloApp {
         //call repaint here so that app runs continuously, remove if you dont need that
         ctx.request_repaint();
 
-        self.hanabi_app.draw(&mut self.terminal);
+        self.hanabi_app.draw(&mut self.terminal).unwrap();
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add(self.terminal.backend_mut());
@@ -261,7 +249,6 @@ impl eframe::App for HelloApp {
                     let new_state = HanabiClient::Loaded(game_state);
                     self.hanabi_app.update(new_state);
                 }
-                _ => {}
             },
             _ => {}
         };
@@ -330,7 +317,6 @@ fn setup_websocket(
     // For small binary messages, like CBOR, Arraybuffer is more efficient than Blob handling
     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
     // create callback
-    let cloned_ws = ws.clone();
     let onmessage_callback = Closure::<dyn FnMut(_)>::new(move |e: MessageEvent| {
         // Handle difference Text/Binary,...
         if let Ok(abuf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {

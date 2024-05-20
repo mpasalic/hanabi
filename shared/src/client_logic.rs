@@ -1,10 +1,9 @@
 use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    Card, CardFace, CardSuit, ClientPlayerView, GameConfig, GameEvent, GameState,
-    GameStateSnapshot, HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
+    CardFace, CardSuit, ClientPlayerView, GameConfig, GameEvent, GameState, GameStateSnapshot,
+    HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -228,10 +227,10 @@ pub struct GameLog {
 }
 
 impl GameLog {
-    pub fn new(config: GameConfig) -> Self {
+    pub fn new<R: SeedableRng + Rng>(config: GameConfig) -> Self {
         GameLog {
             config: config.clone(),
-            initial: GameState::start(&config).unwrap(),
+            initial: GameState::start::<R>(&config).unwrap(),
             log: vec![],
             history: vec![],
         }

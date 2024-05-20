@@ -1,70 +1,8 @@
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
-/*
-CREATE TABLE IF NOT EXISTS player (
-    game_id TEXT NOT NULL,
-    player_index SMALLINT NOT NULL,
-    display_name TEXT NOT NULL,
-    PRIMARY KEY(game_id, player_index)
-);
-
-CREATE TABLE IF NOT EXISTS game_config (
-    game_id TEXT NOT NULL,
-    num_players SMALLINT NOT NULL,
-    hand_size SMALLINT NOT NULL,
-    num_fuses SMALLINT NOT NULL,
-    num_hints SMALLINT NOT NULL,
-    starting_player SMALLINT NOT NULL,
-    seed BIGINT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS game_log (
-    game_id TEXT NOT NULL,
-    turn_id SMALLINT NOT NULL,
-    player_index SMALLINT NOT NULL,
-    player_action JSONB NOT NULL,
-    created_at TIMESTAMP NOT NULL
-    PRIMARY KEY(game_id, turn_id)
-);
-*/
 
 use serde::{Deserialize, Serialize};
-use shared::{
-    client_logic::{GameLog, OnlinePlayer},
-    model::{GameConfig, PlayerAction, PlayerIndex},
-};
-use shuttle_runtime::CustomError;
+use shared::model::{GameConfig, PlayerAction, PlayerIndex};
 use sqlx::{FromRow, PgPool};
-
-// async fn retrieve(
-//     pool: &PgPool,
-//     Path(id): Path<i32>,
-// ) -> Result<impl IntoResponse, impl IntoResponse> {
-//     match sqlx::query_as::<_, Todo>("SELECT * FROM todos WHERE id = $1")
-//         .bind(id)
-//         .fetch_one(&state.pool)
-//         .await
-//     {
-//         Ok(todo) => Ok((StatusCode::OK, Json(todo))),
-//         Err(e) => Err((StatusCode::BAD_REQUEST, e.to_string())),
-//     }
-// }
-
-// CREATE TABLE IF NOT EXISTS player (
-//     game_id TEXT NOT NULL,
-//     player_index SMALLINT NOT NULL,
-//     display_name TEXT NOT NULL,
-//     PRIMARY KEY(game_id, player_index)
-// );
-
-// CREATE TABLE IF NOT EXISTS game_config (
-//     game_id TEXT NOT NULL,
-//     num_players SMALLINT NOT NULL,
-//     hand_size SMALLINT NOT NULL,
-//     num_fuses SMALLINT NOT NULL,
-//     num_hints SMALLINT NOT NULL,
-//     starting_player SMALLINT NOT NULL,
-//     seed BIGINT NOT NULL
-// );
 
 #[derive(Deserialize, Serialize)]
 struct NewGameConfig {
@@ -81,16 +19,6 @@ struct NewGameConfig {
 struct GameConfigEntry {
     pub game_id: String,
 }
-
-// #[derive(Serialize, FromRow)]
-// pub struct GameConfig {
-//     pub num_players: usize,
-//     pub hand_size: usize,
-//     pub num_fuses: u8,
-//     pub num_hints: u8,
-//     pub starting_player: u8,
-//     pub seed: u64,
-// }
 
 const COLORS: [&str; 11] = [
     "red", "blue", "green", "yellow", "orange", "purple", "pink", "grey", "white", "black", "teal",
@@ -267,16 +195,6 @@ pub async fn create_game(
     Ok(game_id)
 }
 
-/*
-CREATE TABLE IF NOT EXISTS game_log (
-    game_id TEXT NOT NULL,
-    turn_id SMALLINT NOT NULL,
-    player_index SMALLINT NOT NULL,
-    player_action JSONB NOT NULL,
-    created_at TIMESTAMP NOT NULL
-    PRIMARY KEY(game_id, turn_id)
-);
- */
 pub async fn save_action(
     pool: &PgPool,
     game_id: &String,
