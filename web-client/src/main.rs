@@ -103,8 +103,11 @@ fn get_websocket_url(cc: &eframe::CreationContext<'_>) -> String {
     let proto = &cc.integration_info.web_info.location.protocol;
     let host = &cc.integration_info.web_info.location.host;
 
+    console_log!("Protocol: '{:?}'", proto);
+    console_log!("Host: '{:?}'", host);
+
     let url = match proto.as_str() {
-        "https" => format!("wss://{}/websocket", host),
+        "https:" => format!("wss://{}/websocket", host),
         _ => format!("ws://{}/websocket", host),
     };
 
