@@ -11,6 +11,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 
+use crate::key_code::KeyCode;
 use shared::client_logic::*;
 
 type BoxedResult<T> = std::result::Result<T, Box<dyn Error>>;
@@ -41,93 +42,6 @@ impl CardKey for CardFace {
             CardFace::Five => "5",
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyCode {
-    /// Backspace key.
-    Backspace,
-    /// Enter key.
-    Enter,
-    /// Left arrow key.
-    Left,
-    /// Right arrow key.
-    Right,
-    /// Up arrow key.
-    Up,
-    /// Down arrow key.
-    Down,
-    /// Home key.
-    Home,
-    /// End key.
-    End,
-    /// Page up key.
-    PageUp,
-    /// Page down key.
-    PageDown,
-    /// Tab key.
-    Tab,
-    /// Shift + Tab key.
-    BackTab,
-    /// Delete key.
-    Delete,
-    /// Insert key.
-    Insert,
-    /// F key.
-    ///
-    /// `KeyCode::F(1)` represents F1 key, etc.
-    F(u8),
-    /// A character.
-    ///
-    /// `KeyCode::Char('c')` represents `c` character, etc.
-    Char(char),
-    /// Null.
-    Null,
-    /// Escape key.
-    Esc,
-    /// Caps Lock key.
-    ///
-    /// **Note:** this key can only be read if
-    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
-    /// [`PushKeyboardEnhancementFlags`].
-    CapsLock,
-    /// Scroll Lock key.
-    ///
-    /// **Note:** this key can only be read if
-    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
-    /// [`PushKeyboardEnhancementFlags`].
-    ScrollLock,
-    /// Num Lock key.
-    ///
-    /// **Note:** this key can only be read if
-    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
-    /// [`PushKeyboardEnhancementFlags`].
-    NumLock,
-    /// Print Screen key.
-    ///
-    /// **Note:** this key can only be read if
-    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
-    /// [`PushKeyboardEnhancementFlags`].
-    PrintScreen,
-    /// Pause key.
-    ///
-    /// **Note:** this key can only be read if
-    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
-    /// [`PushKeyboardEnhancementFlags`].
-    Pause,
-    /// Menu key.
-    ///
-    /// **Note:** this key can only be read if
-    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
-    /// [`PushKeyboardEnhancementFlags`].
-    Menu,
-    /// The "Begin" key (often mapped to the 5 key when Num Lock is turned on).
-    ///
-    /// **Note:** this key can only be read if
-    /// [`KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`] has been enabled with
-    /// [`PushKeyboardEnhancementFlags`].
-    KeypadBegin,
-    // Modifier(ModifierKeyCode),
 }
 
 static BACKGROUND_COLOR: Color = Color::Rgb(36, 37, 47);
@@ -263,7 +177,11 @@ impl HanabiApp {
 
         match &self.game_state {
             HanabiClient::Connecting => self.connecting_ui(frame),
-            HanabiClient::Loaded(HanabiGame::Lobby { players, log }) => {
+            HanabiClient::Loaded(HanabiGame::Lobby {
+                players,
+                log,
+                session_id,
+            }) => {
                 self.lobby_ui(players, frame);
 
                 self.render_game_log(
@@ -280,6 +198,7 @@ impl HanabiApp {
             HanabiClient::Loaded(HanabiGame::Started {
                 game_state,
                 players,
+                session_id,
             }) => {
                 self.game_ui(game_state, None, players, frame);
             }
@@ -288,6 +207,7 @@ impl HanabiApp {
                 players,
                 game_state,
                 revealed_game_state,
+                session_id,
             }) => {
                 self.game_ui(game_state, Some(revealed_game_state), players, frame);
             }
@@ -1024,12 +944,14 @@ impl HanabiApp {
                 HanabiGame::Started {
                     game_state,
                     players,
+                    session_id,
                 } => self.legend_for_command_state_game(game_state, players),
 
                 HanabiGame::Ended {
                     players,
                     game_state,
                     revealed_game_state,
+                    session_id,
                 } => {
                     return vec![LegendItem {
                         desc: format!("Quit"),

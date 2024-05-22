@@ -22,14 +22,17 @@ pub struct OnlinePlayer {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum HanabiGame {
     Lobby {
+        session_id: String,
         log: Vec<String>,
         players: Vec<OnlinePlayer>,
     },
     Started {
+        session_id: String,
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
     },
     Ended {
+        session_id: String,
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
         revealed_game_state: GameState,
@@ -38,11 +41,12 @@ pub enum HanabiGame {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ClientToServerMessage {
-    // CreateGame
+    CreateGame {
+        player_name: String,
+    },
     Join {
         player_name: String,
         session_id: String,
-        //
     },
     StartGame,
     PlayerAction {
@@ -60,6 +64,7 @@ struct Lobby {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
 pub enum ServerToClientMessage {
+    CreatedGame { session_id: String },
     UpdatedGameState(HanabiGame),
 }
 

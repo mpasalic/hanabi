@@ -60,13 +60,29 @@ fn generate_random_string() -> String {
     random_string
 }
 
-fn generate_id() -> String {
+fn generate_game_id() -> String {
     let mut rng = thread_rng();
     let color = COLORS[rng.gen_range(0..COLORS.len())];
     let animal = ANIMALS[rng.gen_range(0..ANIMALS.len())];
     let random_string = generate_random_string();
 
     format!("{color}-{animal}-{random_string}")
+}
+
+pub async fn generate_unique_game_id(pool: &PgPool) -> Result<String, sqlx::Error> {
+    loop {
+        let game_id = generate_game_id();
+
+        let game_config =
+            sqlx::query_as::<_, GameConfigRow>("SELECT * FROM game_config WHERE game_id = $1")
+                .bind(&game_id)
+                .fetch_optional(pool)
+                .await?;
+
+        if let None = game_config {
+            return Ok(game_id);
+        }
+    }
 }
 
 #[derive(Serialize, FromRow)]

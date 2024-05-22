@@ -1,5 +1,5 @@
 use egui::Event;
-use ratatui_app::hanabi_app::*;
+use ratatui_app::key_code::KeyCode;
 
 pub fn key_code_to_char(value: &Event) -> Option<KeyCode> {
     match value {
@@ -13,13 +13,15 @@ pub fn key_code_to_char(value: &Event) -> Option<KeyCode> {
                 None
             }
         }
-        Event::Key { key, .. } => match key {
-            egui::Key::ArrowDown => None,
-            egui::Key::ArrowLeft => None,
-            egui::Key::ArrowRight => None,
-            egui::Key::ArrowUp => None,
+        Event::Key {
+            key, pressed: true, ..
+        } => match key {
+            egui::Key::ArrowDown => Some(KeyCode::Down),
+            egui::Key::ArrowLeft => Some(KeyCode::Left),
+            egui::Key::ArrowRight => Some(KeyCode::Right),
+            egui::Key::ArrowUp => Some(KeyCode::Up),
             egui::Key::Escape => Some(KeyCode::Esc),
-            egui::Key::Tab => None,
+            egui::Key::Tab => Some(KeyCode::Tab),
             egui::Key::Backspace => Some(KeyCode::Backspace),
             egui::Key::Enter => Some(KeyCode::Enter),
             egui::Key::Space => None,
@@ -132,5 +134,6 @@ pub fn key_code_to_char(value: &Event) -> Option<KeyCode> {
         Event::WindowFocused(_) => None,
         Event::AccessKitActionRequest(_) => None,
         Event::Screenshot { .. } => None,
+        _ => None,
     }
 }

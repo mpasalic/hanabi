@@ -10,6 +10,7 @@ use std::hash::{Hash, Hasher};
 use tokio::sync::mpsc;
 
 use crate::model::create_game;
+use crate::model::generate_unique_game_id;
 use crate::model::get_game_actions;
 use crate::model::get_game_config;
 use crate::model::get_players;
@@ -70,14 +71,17 @@ impl GameLobby {
             p.send(ServerToClientMessage::UpdatedGameState(
                 match &self.status {
                     GameLobbyStatus::Waiting => HanabiGame::Lobby {
+                        session_id: self.session_id.0.clone(),
                         log: self.log.clone(),
                         players: players.clone(),
                     },
                     GameLobbyStatus::Playing(game_log) => HanabiGame::Started {
+                        session_id: self.session_id.0.clone(),
                         players: players.clone(),
                         game_state: game_log.into_client_game_state(PlayerIndex(index)),
                     },
                     GameLobbyStatus::Ended(game_log) => HanabiGame::Ended {
+                        session_id: self.session_id.0.clone(),
                         players: players.clone(),
                         game_state: game_log.into_client_game_state(PlayerIndex(index)),
                         revealed_game_state: game_log.current_game_state().clone(),
@@ -300,6 +304,23 @@ impl LobbyServer {
         message: ClientToServerMessage,
     ) -> Result<(), LobbyError> {
         match message {
+            ClientToServerMessage::CreateGame { player_name } => {
+                let session_id = generate_unique_game_id(&self.pool).await?;
+
+                let game_lobby = self
+                    .game_lobbies
+                    .entry(SessionId(session_id.clone()))
+                    .or_insert(GameLobby::new(
+                        SessionId(session_id.clone()),
+                        vec![SocketPlayer {
+                            name: player_name.clone(),
+                            connection: ConnectionState::Connected(client.clone()),
+                        }],
+                    ));
+                let _ = client.sender.send(ServerToClientMessage::CreatedGame {
+                    session_id: session_id.clone(),
+                });
+            }
             ClientToServerMessage::Join {
                 player_name,
                 session_id,

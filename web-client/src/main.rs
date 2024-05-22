@@ -1,7 +1,11 @@
 use std::sync::mpsc::{self, Sender};
 
+use eframe::set_value;
+use egui::OpenUrl;
 use ratatui::prelude::Terminal;
 use ratatui_app::hanabi_app::*;
+use ratatui_app::input_app::AppInput;
+use ratatui_app::input_app::InputMode;
 use ratframe::NewCC;
 use ratframe::RataguiBackend;
 use shared::client_logic::*;
@@ -40,17 +44,31 @@ fn main() -> eframe::Result<()> {
 
 pub struct HelloApp {
     terminal: Terminal<RataguiBackend>,
-    hanabi_app: HanabiApp,
+    tui_state: TuiState,
     send_to_server: mpsc::Sender<ClientToServerMessage>,
     send_to_server_queue: mpsc::Receiver<ClientToServerMessage>,
     read_from_server: mpsc::Receiver<ServerToClientMessage>,
     server_to_client_sender: Sender<ServerToClientMessage>,
 
     websocket: Option<WebSocket>,
+    web_url: String,
+    // player_name: String,
+    // session_id: Option<String>,
+    // url: String,
+}
 
-    player_name: String,
-    session_id: String,
-    url: String,
+pub enum TuiState {
+    AppInput(AppInput),
+    CreatingGame {
+        player_name: String,
+        server_address: String,
+    },
+    HanabiApp {
+        hanabi_app: HanabiApp,
+        player_name: String,
+        session_id: String,
+        server_address: String,
+    },
 }
 
 //l
@@ -66,39 +84,22 @@ impl Default for HelloApp {
         let terminal = Terminal::new(backend).unwrap();
         Self {
             terminal: terminal,
-            hanabi_app: HanabiApp::new(HanabiClient::Connecting),
+            tui_state: TuiState::AppInput(AppInput::default()),
             send_to_server: client_to_server_sender,
             read_from_server: server_to_client_receiver,
             send_to_server_queue: client_to_server_receiver,
             server_to_client_sender: server_to_client_sender,
             websocket: None,
-            player_name: "Player".to_string(),
-            session_id: "Session".to_string(),
-            url: "ws://localhost:8080".to_string(),
+            web_url: "".to_string(),
+            // player_name: "Player".to_string(),
+            // session_id: None,
+            // url: "ws://localhost:8080".to_string(),
         }
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn get_params(cc: &eframe::CreationContext<'_>) -> Option<(String, String, String)> {
-    let session = cc
-        .integration_info
-        .web_info
-        .location
-        .query_map
-        .get("session_id")
-        .unwrap()
-        .join("");
-
-    let name = cc
-        .integration_info
-        .web_info
-        .location
-        .query_map
-        .get("name")
-        .unwrap()
-        .join("");
-
+fn get_websocket_url(cc: &eframe::CreationContext<'_>) -> String {
     let proto = &cc.integration_info.web_info.location.protocol;
     let host = &cc.integration_info.web_info.location.host;
 
@@ -107,22 +108,58 @@ fn get_params(cc: &eframe::CreationContext<'_>) -> Option<(String, String, Strin
         _ => format!("ws://{}/websocket", host),
     };
 
-    Some((session, name, url))
+    url
 }
+
+#[cfg(target_arch = "wasm32")]
+fn get_web_url(cc: &eframe::CreationContext<'_>) -> String {
+    let origin = &cc.integration_info.web_info.location.origin;
+    return origin.clone();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_session_id(cc: &eframe::CreationContext<'_>) -> Option<String> {
+    let session = cc
+        .integration_info
+        .web_info
+        .location
+        .query_map
+        .get("session_id")?
+        .join("");
+
+    Some(session)
+}
+
+static PLAYER_NAME: &str = "player_name";
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
-fn get_params(_cc: &eframe::CreationContext<'_>) -> Option<(String, String, String)> {
+fn get_websocket_url(_cc: &eframe::CreationContext<'_>) -> String {
+    "ws://127.0.0.1:8000/websocket".to_string()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_web_url(_cc: &eframe::CreationContext<'_>) -> String {
+    "http://127.0.0.1:8000".to_string()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_session_id(_cc: &eframe::CreationContext<'_>) -> Option<String> {
     None
 }
 
 impl NewCC for HelloApp {
     /// Called once before the first frame.
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let (session_id, player_name, url) = get_params(cc).unwrap();
-        console_log!("Session ID: {:?}", session_id);
-        console_log!("Player Name: {:?}", player_name);
-        console_log!("URL: {:?}", url);
+        let websocket_url = get_websocket_url(cc);
+        // let url = "ws://127.0.0.1:8000/websocket".to_string();
+        let player_name = eframe::get_value::<String>(cc.storage.unwrap(), PLAYER_NAME);
+        let session_id = get_session_id(cc);
+        let web_url = get_web_url(cc);
+        // let (session_id, player_name, url) = get_params(cc).unwrap();
+        // console_log!("Session ID: {:?}", session_id);
+        // console_log!("Player Name: {:?}", player_name);
+        // console_log!("URL: {:?}", url);
 
         let (client_to_server_sender, client_to_server_receiver) =
             mpsc::channel::<ClientToServerMessage>();
@@ -130,17 +167,21 @@ impl NewCC for HelloApp {
             mpsc::channel::<ServerToClientMessage>();
 
         console_log!("Hello from wasm");
+        console_log!("Player Name: {:?}", player_name);
+        console_log!("Session ID: {:?}", session_id);
+        console_log!("URL: {:?}", websocket_url);
+        console_log!("Web URL: {:?}", web_url);
 
-        let result = setup_websocket(
-            url.clone(),
-            player_name.clone(),
-            session_id.clone(),
-            server_to_client_sender.clone(),
-        );
+        // let result = setup_websocket(
+        //     url.clone(),
+        //     player_name.clone(),
+        //     session_id.clone(),
+        //     server_to_client_sender.clone(),
+        // );
 
-        console_log!("Websocket setup result: {:?}", result);
+        // console_log!("Websocket setup result: {:?}", result);
 
-        let ws = result.unwrap();
+        // let ws = result.unwrap();
 
         setup_custom_fonts(&cc.egui_ctx);
         //Creating the Ratatui backend/ Egui widget here
@@ -153,18 +194,23 @@ impl NewCC for HelloApp {
             "BoldOblique".into(),
         );
 
+        let session_join_url =
+            session_id.and_then(|s| Some(format!("{}/?session_id={}", web_url.clone(), s)));
+
         let terminal = Terminal::new(backend).unwrap();
         Self {
             terminal: terminal,
-            hanabi_app: HanabiApp::new(HanabiClient::Connecting),
+            tui_state: TuiState::AppInput(AppInput::new(
+                websocket_url.clone(),
+                session_join_url,
+                player_name.unwrap_or("".to_string()),
+            )),
             send_to_server: client_to_server_sender,
             send_to_server_queue: client_to_server_receiver,
             read_from_server: server_to_client_receiver,
             server_to_client_sender: server_to_client_sender.clone(),
-            websocket: Some(ws),
-            player_name: player_name,
-            session_id: session_id,
-            url: url,
+            websocket: None,
+            web_url: web_url,
         }
     }
 
@@ -174,84 +220,209 @@ impl NewCC for HelloApp {
     }
 }
 
+impl HelloApp {
+    fn get_player_name(&mut self, eframe: &mut eframe::Frame) -> Option<String> {
+        eframe::get_value::<String>(eframe.storage_mut()?, PLAYER_NAME)
+    }
+
+    fn set_player_name(
+        &mut self,
+        eframe: &mut eframe::Frame,
+        player_name: String,
+    ) -> Option<String> {
+        set_value::<String>(eframe.storage_mut()?, PLAYER_NAME, &player_name);
+        Some(player_name)
+    }
+}
+
 impl eframe::App for HelloApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //call repaint here so that app runs continuously, remove if you dont need that
-        ctx.request_repaint();
+        //ctx.request_repaint();
 
-        self.hanabi_app.draw(&mut self.terminal).unwrap();
+        match self.tui_state {
+            TuiState::AppInput(ref mut app_input) => {
+                let copy_url = app_input.session_id.clone().unwrap_or("".to_string());
+                app_input.draw(&mut self.terminal);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add(self.terminal.backend_mut());
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.add(self.terminal.backend_mut());
 
-            ui.input(|i| {
-                i.events.iter().for_each(|e| {
-                    let key = key_code_to_char(e);
-                    if let Some(key) = key {
-                        println!("Event: {:?} -> {:?}", e, key);
-                        let result = self.hanabi_app.handle_event(key).unwrap();
-
-                        match result {
-                            EventHandlerResult::PlayerAction(action) => {
-                                self.send_to_server
-                                    .send(ClientToServerMessage::PlayerAction { action })
-                                    .unwrap();
+                    ui.input(|i| {
+                        i.events.iter().for_each(|e| {
+                            match e {
+                                egui::Event::Key {
+                                    key: egui::Key::Space,
+                                    ..
+                                } => {
+                                    console_log!("Coppied URL! {}", copy_url);
+                                    // Doesn't work :(
+                                    // ctx.output_mut(|o| {
+                                    //     o.copied_text = format!("{}", copy_url);
+                                    // });
+                                    // return;
+                                }
+                                _ => {}
                             }
-                            EventHandlerResult::Start => {
-                                self.send_to_server
-                                    .send(ClientToServerMessage::StartGame)
-                                    .unwrap();
+                            let key = key_code_to_char(e);
+                            if let Some(key) = key {
+                                println!("Event: {:?} -> {:?}", e, key);
+                                let result = app_input.handle_event(key).unwrap();
+
+                                match result {
+                                    std::ops::ControlFlow::Continue(_) => {}
+                                    std::ops::ControlFlow::Break(_) => {
+                                        console_log!("Got name! {:?}", app_input.display_name);
+                                    }
+                                }
                             }
-                            EventHandlerResult::Quit => {}
-                            EventHandlerResult::Continue => {}
+                        })
+                    });
+                });
+
+                if let InputMode::Done = app_input.input_mode {
+                    let player_name = app_input.display_name.clone();
+                    let session_id = app_input.session_id.clone();
+
+                    match session_id {
+                        Some(session_id) => {
+                            self.tui_state = TuiState::HanabiApp {
+                                hanabi_app: HanabiApp::new(HanabiClient::Connecting),
+                                player_name: player_name.clone(),
+                                session_id: session_id.clone(),
+                                server_address: app_input.server_address.clone(),
+                            };
+                        }
+                        None => {
+                            self.tui_state = TuiState::CreatingGame {
+                                player_name: player_name.clone(),
+                                server_address: app_input.server_address.clone(),
+                            };
                         }
                     }
-                })
-            });
-        });
 
-        if let Some(websocket) = &self.websocket {
-            if websocket.ready_state() == 1 {
-                let message = self.send_to_server_queue.try_recv();
-                if let Ok(message) = message {
-                    console_log!("Sending... {:?}", message);
-
-                    let send_result =
-                        websocket.send_with_str(serde_json::to_string(&message).unwrap().as_str());
-
-                    console_log!("Send result: {:?}", send_result);
+                    self.set_player_name(_frame, player_name);
                 }
-            } else if websocket.ready_state() > 1 {
-                console_log!("Websocket was closed, reconnecting...");
-                self.websocket = None;
+            }
+            TuiState::CreatingGame {
+                ref player_name,
+                ref server_address,
+            } => {
+                if let None = self.websocket {
+                    let result = setup_websocket(
+                        server_address.clone(),
+                        player_name.clone(),
+                        None,
+                        self.server_to_client_sender.clone(),
+                    );
+                    console_log!("Websocket setup result: {:?}", result);
+                    self.websocket = Some(result.unwrap());
+                }
+
+                let message = self.read_from_server.try_recv();
+
+                match message {
+                    Ok(message) => match message {
+                        ServerToClientMessage::CreatedGame { session_id } => {
+                            console_log!("Got Created Game... {:?}", session_id);
+
+                            ctx.output_mut(|o| {
+                                // doesn't work :(
+                                // o.copied_text =
+                                //     format!("{}/?session_id={}", self.web_url, session_id);
+                                o.open_url = Some(OpenUrl {
+                                    url: format!("/?session_id={}", session_id),
+                                    new_tab: false,
+                                })
+                            });
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                };
+            }
+            TuiState::HanabiApp {
+                ref mut hanabi_app,
+                ref player_name,
+                ref session_id,
+                ref server_address,
+            } => {
+                hanabi_app.draw(&mut self.terminal).unwrap();
+
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.add(self.terminal.backend_mut());
+
+                    ui.input(|i| {
+                        i.events.iter().for_each(|e| {
+                            let key = key_code_to_char(e);
+                            if let Some(key) = key {
+                                println!("Event: {:?} -> {:?}", e, key);
+                                let result = hanabi_app.handle_event(key).unwrap();
+
+                                match result {
+                                    EventHandlerResult::PlayerAction(action) => {
+                                        self.send_to_server
+                                            .send(ClientToServerMessage::PlayerAction { action })
+                                            .unwrap();
+                                    }
+                                    EventHandlerResult::Start => {
+                                        self.send_to_server
+                                            .send(ClientToServerMessage::StartGame)
+                                            .unwrap();
+                                    }
+                                    EventHandlerResult::Quit => {}
+                                    EventHandlerResult::Continue => {}
+                                }
+                            }
+                        })
+                    });
+                });
+
+                if let Some(websocket) = &self.websocket {
+                    if websocket.ready_state() == 1 {
+                        let message = self.send_to_server_queue.try_recv();
+                        if let Ok(message) = message {
+                            console_log!("Sending... {:?}", message);
+
+                            let send_result = websocket
+                                .send_with_str(serde_json::to_string(&message).unwrap().as_str());
+
+                            console_log!("Send result: {:?}", send_result);
+                        }
+                    } else if websocket.ready_state() > 1 {
+                        console_log!("Websocket was closed, reconnecting...");
+                        self.websocket = None;
+                    }
+                }
+
+                if let None = self.websocket {
+                    let result = setup_websocket(
+                        server_address.clone(),
+                        player_name.clone(),
+                        Some(session_id.clone()),
+                        self.server_to_client_sender.clone(),
+                    );
+                    console_log!("Websocket setup result: {:?}", result);
+                    self.websocket = Some(result.unwrap());
+                }
+
+                let message = self.read_from_server.try_recv();
+
+                match message {
+                    Ok(message) => match message {
+                        ServerToClientMessage::CreatedGame { session_id } => {}
+                        ServerToClientMessage::UpdatedGameState(game_state) => {
+                            console_log!("Got Updated Game State... {:?}", game_state);
+
+                            let new_state = HanabiClient::Loaded(game_state);
+                            hanabi_app.update(new_state);
+                        }
+                    },
+                    _ => {}
+                };
             }
         }
-
-        if let None = self.websocket {
-            let result = setup_websocket(
-                self.url.clone(),
-                self.player_name.clone(),
-                self.session_id.clone(),
-                self.server_to_client_sender.clone(),
-            );
-            console_log!("Websocket setup result: {:?}", result);
-            self.websocket = Some(result.unwrap());
-        }
-
-        let message = self.read_from_server.try_recv();
-
-        match message {
-            Ok(message) => match message {
-                ServerToClientMessage::UpdatedGameState(game_state) => {
-                    console_log!("Got Updated Game State... {:?}", game_state);
-
-                    let new_state = HanabiClient::Loaded(game_state);
-                    self.hanabi_app.update(new_state);
-                }
-            },
-            _ => {}
-        };
     }
 }
 
@@ -307,7 +478,7 @@ fn setup_custom_fonts(ctx: &egui::Context) {
 fn setup_websocket(
     url: String,
     player_name: String,
-    session_id: String,
+    session_id: Option<String>,
     server_to_client_sender: Sender<ServerToClientMessage>,
 ) -> Result<WebSocket, JsValue> {
     console_log!("Connecting to websocket: {:?}", url);
@@ -365,17 +536,24 @@ fn setup_websocket(
 
     let cloned_ws = ws.clone();
 
-    let join_msg = serde_json::to_string(&ClientToServerMessage::Join {
-        player_name: player_name.clone(),
-        session_id: session_id.clone(),
+    let init_message = serde_json::to_string(&match session_id {
+        None => ClientToServerMessage::CreateGame {
+            player_name: player_name.clone(),
+        },
+        Some(session_id) => ClientToServerMessage::Join {
+            player_name: player_name.clone(),
+            session_id: session_id,
+        },
     })
     .unwrap();
+
+    console_log!("Sending init message: {:?}", init_message);
 
     let onopen_callback = Closure::<dyn FnMut()>::new(move || {
         console_log!("socket opened");
 
-        match cloned_ws.send_with_str(&join_msg) {
-            Ok(_) => console_log!("join successfully sent"),
+        match cloned_ws.send_with_str(&init_message) {
+            Ok(_) => console_log!("successfully sent message"),
             Err(err) => console_log!("error sending join message: {:?}", err),
         }
     });
