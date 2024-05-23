@@ -3,6 +3,6 @@ resolver = "2"
 members = [
     "ratatui-app",
     "shared",
-    "shuttle_server",
+    "shuttle-server",
     "web-client",
 ]

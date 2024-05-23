@@ -1,13 +1,13 @@
 # just task runner configuration for shuttle-template-yew
 
-run-dev:
-  cd web-client && trunk serve --open
+run-web-dev:
+  cd web-client && trunk serve --open --proxy-backend=ws://127.0.0.1:8000/websocket --proxy-ws
 
-build-release:
+build-web-release:
   cd web-client && trunk clean && trunk build --release
 
-shuttle-run:
+run-shuttle-dev:
   cargo shuttle run
 
-shuttle-deploy:
+deploy-shuttle-release:
   cargo shuttle project restart && cargo shuttle deploy
