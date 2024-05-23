@@ -1,15 +1,8 @@
-[package]
-name = "hanabi_sim"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-rand = "0.8.5"
-colored = "2.0.4"
-enum-map = "2.6.1"
-autosurgeon = "0.8.0"
-automerge = "0.5.1"
-strum = "0.25.0"
-strum_macros = "0.25.2"
+[workspace]
+resolver = "2"
+members = [
+    "ratatui-app",
+    "shared",
+    "shuttle-server",
+    "web-client",
+]
