@@ -1,5 +1,12 @@
 # HanabiApp
 
+TODO
+
+- [ ] Lobby UI
+- [ ] Fix reconnection (too aggressive)
+- [ ] Improve Create/Join UI
+- [ ] Game log scrolling
+
 ## Workspaces
 
 - `web-client/` this is the EGui wrapper client to serve a app through the web using WebAssembly
