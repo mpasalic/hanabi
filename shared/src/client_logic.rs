@@ -71,13 +71,13 @@ pub enum ServerToClientMessage {
 #[derive(Debug, Clone)]
 pub enum HintState {
     ChoosingPlayer,
-    ChoosingHintType { player_index: u8 },
+    ChoosingHint { player_index: u8 },
     // ChoosingCard {
     //     player_index: u8,
     //     hint_type: HintBuilderType,
     // },
-    ChoosingSuit { player_index: u8 },
-    ChoosingFace { player_index: u8 },
+    // ChoosingSuit { player_index: u8 },
+    // ChoosingFace { player_index: u8 },
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +105,6 @@ pub enum GameAction {
     StartPlay,
     StartDiscard,
     SelectPlayer { player_index: u8 },
-    SelectHintType { hint_type: HintBuilderType },
     SelectSuit(CardSuit),
     SelectFace(CardFace),
     SelectCard(SlotIndex),
@@ -158,19 +157,11 @@ pub fn process_app_action(
         }
 
         (C::Hint(HintState::ChoosingPlayer), A::SelectPlayer { player_index }) => {
-            C::Hint(HintState::ChoosingHintType { player_index })
+            C::Hint(HintState::ChoosingHint { player_index })
         }
 
-        (
-            C::Hint(HintState::ChoosingHintType { player_index }),
-            A::SelectHintType { hint_type },
-        ) => C::Hint(match hint_type {
-            HintBuilderType::Suite => HintState::ChoosingSuit { player_index },
-            HintBuilderType::Face => HintState::ChoosingFace { player_index },
-        }),
-
         // TODO produce a command
-        (C::Hint(HintState::ChoosingSuit { player_index }), A::SelectSuit(suit)) => {
+        (C::Hint(HintState::ChoosingHint { player_index }), A::SelectSuit(suit)) => {
             return (
                 CommandState {
                     current_command: C::Empty,
@@ -183,7 +174,7 @@ pub fn process_app_action(
         }
 
         // TODO produce a command
-        (C::Hint(HintState::ChoosingFace { player_index }), A::SelectFace(face)) => {
+        (C::Hint(HintState::ChoosingHint { player_index }), A::SelectFace(face)) => {
             return (
                 CommandState {
                     current_command: C::Empty,
@@ -198,15 +189,7 @@ pub fn process_app_action(
         // ----- Undo -----
         (C::Hint(HintState::ChoosingPlayer), A::Undo) => C::Empty,
 
-        (C::Hint(HintState::ChoosingHintType { .. }), A::Undo) => {
-            C::Hint(HintState::ChoosingPlayer)
-        }
-
-        (
-            C::Hint(HintState::ChoosingSuit { player_index })
-            | C::Hint(HintState::ChoosingFace { player_index }),
-            A::Undo,
-        ) => C::Hint(HintState::ChoosingHintType { player_index }),
+        (C::Hint(HintState::ChoosingHint { .. }), A::Undo) => C::Hint(HintState::ChoosingPlayer),
 
         (C::Play(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
         (C::Discard(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
