@@ -318,6 +318,7 @@ impl eframe::App for HelloApp {
                         player_name.clone(),
                         None,
                         self.server_to_client_sender.clone(),
+                        ctx.clone(),
                     );
                     console_log!("Websocket setup result: {:?}", result);
                     self.websocket = Some(result.unwrap());
@@ -405,6 +406,7 @@ impl eframe::App for HelloApp {
                         player_name.clone(),
                         Some(session_id.clone()),
                         self.server_to_client_sender.clone(),
+                        ctx.clone(),
                     );
                     console_log!("Websocket setup result: {:?}", result);
                     self.websocket = Some(result.unwrap());
@@ -483,6 +485,7 @@ fn setup_websocket(
     player_name: String,
     session_id: Option<String>,
     server_to_client_sender: Sender<ServerToClientMessage>,
+    ctx: egui::Context,
 ) -> Result<WebSocket, JsValue> {
     console_log!("Connecting to websocket: {:?}", url);
 
@@ -521,6 +524,7 @@ fn setup_websocket(
 
             console_log!("Message received: {:?}", msg);
             server_to_client_sender.send(msg).unwrap();
+            ctx.request_repaint();
         } else {
             console_log!("message event, received Unknown: {:?}", e.data());
         }
