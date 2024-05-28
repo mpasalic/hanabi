@@ -507,14 +507,11 @@ impl HanabiApp {
                     (PlayerIndex(turn), _) if turn as usize == index => {
                         PlayerRenderState::CurrentTurn
                     }
-                    (
-                        _,
-                        &CommandBuilder::Hint(
-                            HintState::ChoosingHintType { player_index }
-                            | HintState::ChoosingFace { player_index }
-                            | HintState::ChoosingSuit { player_index },
-                        ),
-                    ) if player_index as usize == index => PlayerRenderState::CurrentSelection,
+                    (_, &CommandBuilder::Hint(HintState::ChoosingHint { player_index }))
+                        if player_index as usize == index =>
+                    {
+                        PlayerRenderState::CurrentSelection
+                    }
                     _ => PlayerRenderState::Default,
                 },
                 frame,
@@ -1026,7 +1023,7 @@ impl HanabiApp {
                 }))
                 .collect_vec(),
 
-            CommandBuilder::Hint(HintState::ChoosingFace { .. }) => vec![
+            CommandBuilder::Hint(HintState::ChoosingHint { .. }) => vec![
                 LegendItem {
                     desc: "One".to_string(),
                     key_code: Char('1'),
@@ -1052,13 +1049,6 @@ impl HanabiApp {
                     key_code: Char('5'),
                     action: AppAction::GameAction(GameAction::SelectFace(CardFace::Five)),
                 },
-                LegendItem {
-                    desc: "Back".to_string(),
-                    key_code: Backspace,
-                    action: AppAction::GameAction(GameAction::Undo),
-                },
-            ],
-            CommandBuilder::Hint(HintState::ChoosingSuit { .. }) => vec![
                 LegendItem {
                     desc: "Blue".to_string(),
                     key_code: Char('b'),
@@ -1090,27 +1080,7 @@ impl HanabiApp {
                     action: AppAction::GameAction(GameAction::Undo),
                 },
             ],
-            CommandBuilder::Hint(HintState::ChoosingHintType { .. }) => vec![
-                LegendItem {
-                    desc: "Suit".to_string(),
-                    key_code: Char('s'),
-                    action: AppAction::GameAction(GameAction::SelectHintType {
-                        hint_type: HintBuilderType::Suite,
-                    }),
-                },
-                LegendItem {
-                    desc: "Face".to_string(),
-                    key_code: Char('f'),
-                    action: AppAction::GameAction(GameAction::SelectHintType {
-                        hint_type: HintBuilderType::Face,
-                    }),
-                },
-                LegendItem {
-                    desc: "Back".to_string(),
-                    key_code: Backspace,
-                    action: AppAction::GameAction(GameAction::Undo),
-                },
-            ],
+
             CommandBuilder::Play(CardState::ChoosingCard { card_type })
             | CommandBuilder::Discard(CardState::ChoosingCard { card_type }) => {
                 let action = match card_type {
