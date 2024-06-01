@@ -6,6 +6,7 @@ use ratatui::prelude::Terminal;
 use ratatui_app::hanabi_app::*;
 use ratatui_app::input_app::AppInput;
 use ratatui_app::input_app::InputMode;
+use ratatui_app::key_code::KeyCode;
 use ratframe::NewCC;
 use ratframe::RataguiBackend;
 use shared::client_logic::*;
@@ -52,9 +53,6 @@ pub struct HelloApp {
 
     websocket: Option<WebSocket>,
     web_url: String,
-    // player_name: String,
-    // session_id: Option<String>,
-    // url: String,
 }
 
 pub enum TuiState {
@@ -68,6 +66,9 @@ pub enum TuiState {
         player_name: String,
         session_id: String,
         server_address: String,
+    },
+    Test {
+        hanabi_app: HanabiApp,
     },
 }
 
@@ -188,14 +189,16 @@ impl NewCC for HelloApp {
 
         setup_custom_fonts(&cc.egui_ctx);
         //Creating the Ratatui backend/ Egui widget here
-        let backend = RataguiBackend::new_with_fonts(
+        let mut backend = RataguiBackend::new_with_fonts(
             100,
             100,
-            "Regular".into(),
-            "Bold".into(),
-            "Oblique".into(),
-            "BoldOblique".into(),
+            "JetBrainsMonoNerdFont-Regular".into(),
+            "JetBrainsMonoNerdFont-Bold".into(),
+            "JetBrainsMonoNerdFont-Oblique".into(),
+            "JetBrainsMonoNerdFont-BoldOblique".into(),
         );
+        // let mut backend = RataguiBackend::new(200, 100);
+        // backend.set_font_size(16);
 
         let session_join_url =
             session_id.and_then(|s| Some(format!("{}/?session_id={}", web_url.clone(), s)));
@@ -208,6 +211,9 @@ impl NewCC for HelloApp {
                 session_join_url,
                 player_name.unwrap_or("".to_string()),
             )),
+            // tui_state: TuiState::Test {
+            //     hanabi_app: HanabiApp::new(HanabiClient::Connecting),
+            // },
             send_to_server: client_to_server_sender,
             send_to_server_queue: client_to_server_receiver,
             read_from_server: server_to_client_receiver,
@@ -242,9 +248,15 @@ impl eframe::App for HelloApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //call repaint here so that app runs continuously, remove if you dont need that
-        //ctx.request_repaint();
+        ctx.request_repaint();
 
         match self.tui_state {
+            TuiState::Test { ref mut hanabi_app } => {
+                hanabi_app.draw(&mut self.terminal).unwrap();
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.add(self.terminal.backend_mut());
+                });
+            }
             TuiState::AppInput(ref mut app_input) => {
                 let copy_url = app_input.session_id.clone().unwrap_or("".to_string());
                 app_input.draw(&mut self.terminal);
@@ -260,6 +272,7 @@ impl eframe::App for HelloApp {
                                     ..
                                 } => {
                                     console_log!("Coppied URL! {}", copy_url);
+                                    console_log!("UI: {:?}", ui.available_width());
                                     // Doesn't work :(
                                     // ctx.output_mut(|o| {
                                     //     o.copied_text = format!("{}", copy_url);
@@ -362,6 +375,11 @@ impl eframe::App for HelloApp {
                             let key = key_code_to_char(e);
                             if let Some(key) = key {
                                 println!("Event: {:?} -> {:?}", e, key);
+
+                                if key == KeyCode::Char(' ') {
+                                    console_log!("DEBUG: {}", ui.available_width());
+                                }
+
                                 let result = hanabi_app.handle_event(key).unwrap();
 
                                 match result {
@@ -438,42 +456,42 @@ fn setup_custom_fonts(ctx: &egui::Context) {
     // Install my own font (maybe supporting non-latin characters).
     // .ttf and .otf files supported.
     fonts.font_data.insert(
-        "Regular".to_owned(),
+        "JetBrainsMonoNerdFont-Regular".to_owned(),
         egui::FontData::from_static(include_bytes!(
             "../assets/JetBrainsMonoNerdFont-Regular.ttf"
         )),
     );
     fonts.families.insert(
-        egui::FontFamily::Name("Regular".into()),
-        vec!["Regular".to_owned()],
+        egui::FontFamily::Name("JetBrainsMonoNerdFont-Regular".into()),
+        vec!["JetBrainsMonoNerdFont-Regular".to_owned()],
     );
     fonts.font_data.insert(
-        "Bold".to_owned(),
+        "JetBrainsMonoNerdFont-Bold".to_owned(),
         egui::FontData::from_static(include_bytes!("../assets/JetBrainsMonoNerdFont-Bold.ttf")),
     );
     fonts.families.insert(
-        egui::FontFamily::Name("Bold".into()),
-        vec!["Bold".to_owned()],
+        egui::FontFamily::Name("JetBrainsMonoNerdFont-Bold".into()),
+        vec!["JetBrainsMonoNerdFont-Bold".to_owned()],
     );
 
     fonts.font_data.insert(
-        "Oblique".to_owned(),
+        "JetBrainsMonoNerdFont-Oblique".to_owned(),
         egui::FontData::from_static(include_bytes!("../assets/JetBrainsMonoNerdFont-Italic.ttf")),
     );
     fonts.families.insert(
-        egui::FontFamily::Name("Oblique".into()),
-        vec!["Oblique".to_owned()],
+        egui::FontFamily::Name("JetBrainsMonoNerdFont-Oblique".into()),
+        vec!["JetBrainsMonoNerdFont-Oblique".to_owned()],
     );
 
     fonts.font_data.insert(
-        "BoldOblique".to_owned(),
+        "JetBrainsMonoNerdFont-BoldOblique".to_owned(),
         egui::FontData::from_static(include_bytes!(
             "../assets/JetBrainsMonoNerdFont-BoldItalic.ttf"
         )),
     );
     fonts.families.insert(
-        egui::FontFamily::Name("BoldOblique".into()),
-        vec!["BoldOblique".to_owned()],
+        egui::FontFamily::Name("JetBrainsMonoNerdFont-BoldOblique".into()),
+        vec!["JetBrainsMonoNerdFont-BoldOblique".to_owned()],
     );
 
     // Tell egui to use these fonts:

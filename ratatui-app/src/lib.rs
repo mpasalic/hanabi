@@ -1,13 +1,9 @@
+pub mod components;
 pub mod hanabi_app;
 pub mod input_app;
 pub mod key_code;
+pub mod nodes;
+pub mod text;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        assert!(true);
-    }
-}
+mod test_data;
+mod test_example;
