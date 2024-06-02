@@ -10,7 +10,7 @@ use taffy::{Overflow, Point};
 use crate::{
     components::*,
     key_code::KeyCode,
-    nodes::{GridStack, HStack, LayoutStyle, Node, NodeBuilder, Stack, VStack},
+    nodes::{GridStack, HStack, LayoutRect, LayoutStyle, Node, NodeBuilder, Stack, VStack},
 };
 use shared::client_logic::*;
 use shared::model::*;
@@ -52,15 +52,20 @@ fn root_tree_widget(area: Rect, child: Node<'static>) -> Node<'static> {
             width: length(area.width as f32),
             height: length(area.height as f32),
         },
-        padding: Rect {
-            left: length(1.),
-            right: length(1.),
-            top: length(1.),
-            bottom: length(1.),
-        },
         ..VStack::default_layout()
     })
-    .child(child);
+    .debug("root")
+    .child(child.append_layout(|l| LayoutStyle {
+        size: Size {
+            width: length(area.width),
+            height: length(area.height),
+        },
+        max_size: Size {
+            width: length(area.width),
+            height: length(area.height),
+        },
+        ..l
+    }));
 
     tree.compute_layout(Size {
         width: length(area.width),
@@ -255,16 +260,20 @@ impl HanabiApp {
                     if !has_card {
                         return SlotNodeProps {
                             card: CardNodeProps::Empty,
-                            hints: vec![],
+                            all_hints: vec![],
+                            face_hint: None,
+                            suit_hint: None,
+                            unique_hints: vec![],
+                            unique_not_hints: vec![],
                         };
                     }
 
                     let hints = match &player {
                         ClientPlayerView::Me { hand } => {
-                            hand[slot_index].as_ref().map(|h| h.hints.as_slice())
+                            hand[slot_index].as_ref().map(|h| h.hints.clone())
                         }
                         ClientPlayerView::Teammate { hand } => {
-                            hand[slot_index].as_ref().map(|h| h.hints.as_slice())
+                            hand[slot_index].as_ref().map(|h| h.hints.clone())
                         }
                     };
 
@@ -289,8 +298,40 @@ impl HanabiApp {
                     .unwrap_or((None, None));
 
                     SlotNodeProps {
-                        hints: hints.unwrap_or_default().to_vec(),
+                        all_hints: hints.clone().unwrap_or_default().to_vec(),
                         card: CardNodeProps::SomeCard(face, suit),
+                        face_hint: hints.clone().unwrap_or_default().into_iter().find(
+                            |h| match h {
+                                Hint::IsFace(_) => true,
+                                _ => false,
+                            },
+                        ), //face.map(|f| Hint::IsFace(f)),
+                        suit_hint: hints.clone().unwrap_or_default().into_iter().find(
+                            |h| match h {
+                                Hint::IsSuit(_) => true,
+                                _ => false,
+                            },
+                        ),
+                        unique_hints: hints
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|h| match h {
+                                Hint::IsSuit(_) | Hint::IsFace(_) => true,
+                                _ => false,
+                            })
+                            .unique()
+                            .collect(),
+                        unique_not_hints: hints
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|h| match h {
+                                Hint::IsNotSuit(_) | Hint::IsNotFace(_) => true,
+                                _ => false,
+                            })
+                            .unique()
+                            .collect(),
                     }
                 })
                 .collect_vec();
@@ -359,10 +400,14 @@ impl HanabiApp {
 
         GridStack::new().children(
             LayoutStyle {
-                flex_grow: 1.,
                 grid_template_columns: vec![fr(1.), length(40.)],
                 grid_template_rows: vec![fr(1.), length(3.)],
-
+                padding: LayoutRect {
+                    top: length(1.),
+                    left: length(4.),
+                    right: length(10.),
+                    bottom: length(1.),
+                },
                 ..GridStack::default_layout()
             },
             [
@@ -378,10 +423,10 @@ impl HanabiApp {
                             width: length(0.),
                             height: length(1.),
                         },
-                        size: Size {
-                            width: auto(),
-                            height: auto(),
-                        },
+                        // size: Size {
+                        //     width: auto(),
+                        //     height: auto(),
+                        // },
                         justify_content: Some(JustifyContent::SpaceBetween),
                         ..VStack::default_layout()
                     },
@@ -550,7 +595,7 @@ impl HanabiApp {
         Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title("Game Log YO")
+            .title("Game Log")
             .style(default_style().fg(log_color).bg(BACKGROUND_COLOR))
             .children(
                 LayoutStyle {
@@ -871,7 +916,7 @@ fn game_action_item_tree(item: &LegendItem) -> Node<'static> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_data::{generate_example_panic_case_1, generate_minimal_test_game_state};
+    use crate::test_data::*;
 
     use super::*;
 
@@ -938,7 +983,7 @@ mod tests {
     fn test_panic_case_ui() {
         use ratatui::prelude as ratatui;
 
-        let app_data = generate_example_panic_case_1();
+        let app_data = generate_example_panic_case_2();
 
         let app = HanabiApp {
             exit: false,

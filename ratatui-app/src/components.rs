@@ -52,6 +52,7 @@ pub static TURN_COLOR: Color = Color::Rgb(239, 119, 189);
 pub static NORMAL_TEXT: Color = Color::Rgb(255, 255, 255);
 pub static BLOCK_COLOR: Color = Color::Rgb(160, 160, 160);
 pub static DIM_TEXT: Color = Color::Rgb(100, 100, 100);
+pub static DARK_TEXT: Color = Color::Rgb(50, 50, 60);
 
 pub fn default_style() -> Style {
     Style::default().fg(NORMAL_TEXT).bg(BACKGROUND_COLOR)
@@ -100,7 +101,11 @@ pub enum CardNodeProps {
 }
 
 pub struct SlotNodeProps {
-    pub hints: Vec<Hint>,
+    pub suit_hint: Option<Hint>,
+    pub face_hint: Option<Hint>,
+    pub unique_hints: Vec<Hint>,
+    pub unique_not_hints: Vec<Hint>,
+    pub all_hints: Vec<Hint>,
     pub card: CardNodeProps,
 }
 pub enum PlayerRenderState {
@@ -183,16 +188,9 @@ pub fn hint_span(hint: &Hint) -> Node<'static> {
     match hint {
         Hint::IsNotSuit(suit) => Span::styled(
             suit.key().to_string(),
-            default_style()
-                .fg(colorize_suit_dim(*suit))
-                .add_modifier(Modifier::CROSSED_OUT),
+            default_style().fg(colorize_suit_dim(*suit)),
         ),
-        Hint::IsNotFace(face) => Span::styled(
-            face.key().to_string(),
-            default_style()
-                .fg(DIM_TEXT)
-                .add_modifier(Modifier::CROSSED_OUT),
-        ),
+        Hint::IsNotFace(face) => Span::styled(face.key().to_string(), default_style().fg(DIM_TEXT)),
         Hint::IsSuit(suit) => Span::styled(
             suit.key().to_string(),
             default_style().fg(colorize_suit(*suit)).bold(),
@@ -254,11 +252,11 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
             flex_direction: taffy::FlexDirection::Column,
             size: taffy::Size {
                 width: auto(),
-                height: length(16.),
+                height: length(19.),
             },
-            padding: padding(1.),
+            // padding: padding(1.),
             // margin: margin(1.),
-            ..taffy::Style::default()
+            ..Block::default_layout()
         },
         [
             HStack::new().childs(
@@ -269,46 +267,101 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
                     .collect_vec(),
             ),
             Block::new()
-                .borders(Borders::TOP)
+                .borders(Borders::ALL)
                 .border_type(BorderType::Plain)
-                .border_style(default_style().not_bold().fg(DIM_TEXT))
-                .title("hints".set_style(default_style().fg(DIM_TEXT)))
+                .border_style(default_style().not_bold().fg(DARK_TEXT))
+                .title("\u{eab2}".set_style(default_style().fg(BLOCK_COLOR)))
                 .title_alignment(Alignment::Center)
+                .title_position(Position::Top)
                 .layout(LayoutStyle {
                     size: taffy::Size {
                         width: auto(),
-                        height: length(1.),
+                        height: auto(),
                     },
-                    ..taffy::Style::default()
-                }),
-            HStack::new().children(
-                LayoutStyle {
-                    justify_content: Some(JustifyContent::SpaceBetween),
-                    padding: LayoutRect {
-                        left: length(1.),
-                        right: length(1.),
-                        top: length(0.),
-                        bottom: length(0.),
-                    },
-                    ..HStack::default_layout()
-                },
-                player_props
-                    .hand
-                    .iter()
-                    .map(|s| {
-                        VStack::new().children(
-                            LayoutStyle {
-                                size: Size {
-                                    width: length(1.),
-                                    height: auto(),
-                                },
-                                ..VStack::default_layout()
+                    ..Block::default_layout()
+                })
+                .child(
+                    HStack::new().children(
+                        LayoutStyle {
+                            // justify_content: Some(JustifyContent::SpaceBetween),
+                            padding: LayoutRect {
+                                left: length(0.),
+                                right: length(0.),
+                                top: length(0.),
+                                bottom: length(0.),
                             },
-                            s.hints.iter().map(hint_span).collect_vec(),
-                        )
-                    })
-                    .collect_vec(),
-            ),
+                            gap: Size {
+                                width: length(2.),
+                                height: length(0.),
+                            },
+                            ..HStack::default_layout()
+                        },
+                        player_props
+                            .hand
+                            .iter()
+                            .map(|s| {
+                                VStack::new().children(
+                                    LayoutStyle {
+                                        size: Size {
+                                            width: length(1.),
+                                            height: length(2.),
+                                        },
+                                        ..VStack::default_layout()
+                                    },
+                                    s.unique_hints.iter().map(hint_span).collect_vec(),
+                                )
+                            })
+                            .collect_vec(),
+                    ),
+                ),
+            Block::new()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Plain)
+                .border_style(default_style().not_bold().fg(DARK_TEXT))
+                .title("\u{ea76}".set_style(default_style().fg(BLOCK_COLOR).not_bold()))
+                .title_alignment(Alignment::Center)
+                .title_position(Position::Top)
+                .layout(LayoutStyle {
+                    size: taffy::Size {
+                        width: auto(),
+                        height: auto(),
+                    },
+                    ..Block::default_layout()
+                })
+                .child(
+                    HStack::new().children(
+                        LayoutStyle {
+                            // justify_content: Some(JustifyContent::SpaceBetween),
+                            padding: LayoutRect {
+                                left: length(0.),
+                                right: length(0.),
+                                top: length(0.),
+                                bottom: length(0.),
+                            },
+                            gap: Size {
+                                width: length(2.),
+                                height: length(0.),
+                            },
+                            ..HStack::default_layout()
+                        },
+                        player_props
+                            .hand
+                            .iter()
+                            .map(|s| {
+                                VStack::new().children(
+                                    LayoutStyle {
+                                        size: Size {
+                                            width: length(1.),
+                                            height: length(8.),
+                                        },
+                                        ..VStack::default_layout()
+                                    },
+                                    s.unique_not_hints.iter().map(hint_span).collect_vec(),
+                                )
+                            })
+                            .collect_vec(),
+                    ),
+                ),
         ],
     )
 }
@@ -590,6 +643,7 @@ pub fn game_log_tree(log: &Vec<String>) -> Node {
             },
             lines.into_iter().map(|l| l.into()).collect_vec(),
         )
+        .debug("game_log_tree")
 }
 
 pub fn game_action_tree(actions: Vec<String>) -> Node<'static> {

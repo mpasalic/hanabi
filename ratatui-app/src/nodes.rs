@@ -268,7 +268,7 @@ impl<'a> Node<'a> {
             };
 
             println!(
-                "{lines}{fork} {display} [x: {x:<4} y: {y:<4} width: {width:<4} height: {height:<4}] ({key:?}{debug_name:?})",
+                "{lines}{fork} {display} [x: {x:<4} y: {y:<4} w: {width:<4} h: {height:<4} content_w: {content_width:<4} content_h: {content_height:<4} border: l:{bl} r:{br} t:{bt} b:{bb}, padding: l:{pl} r:{pr} t:{pt} b:{pb}] ({key:?}) {debug_name}",
                 lines = lines_string,
                 fork = fork_string,
                 display = display,
@@ -276,9 +276,20 @@ impl<'a> Node<'a> {
                 y = layout.location.y,
                 width = layout.size.width,
                 height = layout.size.height,
+                content_width = layout.content_size.width,
+                content_height = layout.content_size.height,
+                bl = layout.border.left,
+                br = layout.border.right,
+                bt = layout.border.top,
+                bb = layout.border.bottom,
+                pl = layout.padding.left,
+                pr = layout.padding.right,
+                pt = layout.padding.top,
+                pb = layout.padding.bottom,
                 key = node_id,
                 debug_name = debug_name
             );
+
             let bar = if has_sibling { "│   " } else { "    " };
             let new_string = lines_string + bar;
 
@@ -372,14 +383,6 @@ impl<'a> Node<'a> {
 
 impl<'a> WidgetRef for Node<'a> {
     fn render_ref(&self, area: ratatui::prelude::Rect, buf: &mut Buffer) {
-        if (area.width == 0) || (area.height == 0) {
-            println!(
-                "Warning: Skipping render of node {:?} with zero area",
-                self.kind
-            );
-            return;
-        }
-
         let layout_rect = self.final_layout;
 
         let layout_area = Rect {
@@ -390,6 +393,11 @@ impl<'a> WidgetRef for Node<'a> {
         };
 
         let render_area = layout_area.intersection(buf.area);
+
+        if !buf.area.contains(render_area.as_position()) || render_area.area() == 0 {
+            println!("Warning: Skipping render of node {:?}", self.kind);
+            return;
+        }
 
         match &self.kind {
             NodeKind::Flexbox => {}
@@ -527,7 +535,34 @@ impl<'a> taffy::LayoutPartialTree for Node<'a> {
             match &node.kind {
                 NodeKind::Flexbox => compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs),
                 NodeKind::Grid => compute_grid_layout(node, NodeId::from(usize::MAX), inputs),
-                NodeKind::Text(paragraph) | NodeKind::ScrollView(paragraph, _) => {
+                NodeKind::ScrollView(paragraph, _) => {
+                    // compute_leaf_layout(inputs, &node.style, |known_dimensions, available_space| {
+                    //     let text_content = paragraph
+                    //         .lines
+                    //         .iter()
+                    //         .map(|l| {
+                    //             l.spans
+                    //                 .iter()
+                    //                 .map(|s| s.content.clone().into_owned())
+                    //                 .collect_vec()
+                    //                 .join("")
+                    //         })
+                    //         .collect_vec()
+                    //         .join("\n");
+
+                    //     text_measure_function(
+                    //         known_dimensions,
+                    //         available_space,
+                    //         &TextContext {
+                    //             text_content: text_content,
+                    //             writing_mode: WritingMode::Horizontal,
+                    //         },
+                    //         &font_metrics,
+                    //     )
+                    // })
+                    compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs)
+                }
+                NodeKind::Text(paragraph) => {
                     compute_leaf_layout(inputs, &node.style, |known_dimensions, available_space| {
                         let text_content = paragraph
                             .lines

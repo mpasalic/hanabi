@@ -1,3 +1,5 @@
+use unicode_width::UnicodeWidthStr;
+
 pub struct FontMetrics {
     pub char_width: f32,
     pub char_height: f32,
@@ -54,16 +56,16 @@ pub fn text_measure_function(
         for word in &words {
             if current_line_length == 0 {
                 // first word
-                current_line_length = word.len();
+                current_line_length = word.width();
             } else if current_line_length + word.len() + 1 > inline_line_length {
                 // every word past the first needs to check for line length including the space between words
                 // note: a real implementation of this should handle whitespace characters other than ' '
                 // and do something more sophisticated for long words
                 line_count += 1;
-                current_line_length = word.len();
+                current_line_length = word.width();
             } else {
                 // add the word and a space
-                current_line_length += word.len() + 1;
+                current_line_length += word.width() + 1;
             };
         }
         (line_count as f32) * font_metrics.char_height
