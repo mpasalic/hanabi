@@ -234,6 +234,11 @@ impl HanabiApp {
                     right: length(10.),
                     bottom: length(1.),
                 },
+
+                size: Size {
+                    width: percent(1.),
+                    height: percent(1.),
+                },
                 ..GridStack::default_layout()
             },
             [
@@ -690,9 +695,19 @@ fn board_node_props(game_state_snapshot: &GameStateSnapshot) -> BoardProps {
 }
 
 fn slot_node_props(card: Option<Card>, hints: Vec<Hint>) -> SlotNodeProps {
+    let face_hint = hints.clone().into_iter().find_map(|h| match h {
+        Hint::IsFace(face) => Some(face),
+        _ => None,
+    });
+
+    let suit_hint = hints.clone().into_iter().find_map(|h| match h {
+        Hint::IsSuit(suit) => Some(suit),
+        _ => None,
+    });
+
     let (suit, face) = card
         .map(|c| (Some(c.suit), Some(c.face)))
-        .unwrap_or((None, None));
+        .unwrap_or((suit_hint, face_hint));
 
     SlotNodeProps {
         all_hints: hints.clone(),
