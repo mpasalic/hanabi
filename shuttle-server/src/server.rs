@@ -78,12 +78,14 @@ impl GameLobby {
                     GameLobbyStatus::Playing(game_log) => HanabiGame::Started {
                         session_id: self.session_id.0.clone(),
                         players: players.clone(),
-                        game_state: game_log.into_client_game_state(PlayerIndex(index)),
+                        game_state: game_log
+                            .into_client_game_state(PlayerIndex(index), p.name.clone()),
                     },
                     GameLobbyStatus::Ended(game_log) => HanabiGame::Ended {
                         session_id: self.session_id.0.clone(),
                         players: players.clone(),
-                        game_state: game_log.into_client_game_state(PlayerIndex(index)),
+                        game_state: game_log
+                            .into_client_game_state(PlayerIndex(index), p.name.clone()),
                         revealed_game_state: game_log.current_game_state().clone(),
                     },
                 },
@@ -353,17 +355,22 @@ impl LobbyServer {
                     .iter_mut()
                     .find(|p| p.name == player_name);
 
-                match existing_player {
-                    Some(SocketPlayer { connection, .. }) => {
+                match (existing_player, &game_lobby.status) {
+                    (Some(SocketPlayer { connection, .. }), _) => {
                         *connection = ConnectionState::Connected(client.clone());
                         game_lobby.log.push(format!("{} reconnected", player_name));
                     }
-                    None => {
+                    (None, GameLobbyStatus::Waiting) => {
                         game_lobby.players.push(SocketPlayer {
                             name: player_name.clone(),
                             connection: ConnectionState::Connected(client.clone()),
                         });
                         game_lobby.log.push(format!("{} joined", player_name));
+                    }
+                    (None, _) => {
+                        return Err(LobbyError::InvalidState(
+                            "Game is already in progress".to_string(),
+                        ));
                     }
                 }
 

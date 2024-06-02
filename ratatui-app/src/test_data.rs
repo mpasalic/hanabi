@@ -11,9 +11,11 @@ pub fn generate_minimal_test_game_state() -> GameStateSnapshot {
         discard_pile: vec![],
         players: vec![
             ClientPlayerView::Me {
+                name: "p1".to_string(),
                 hand: vec![None, None, None, None, None],
             },
             ClientPlayerView::Teammate {
+                name: "p2".to_string(),
                 hand: vec![None, None, None, None, None],
             },
         ],
@@ -225,6 +227,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
             .to_vec(),
             players: [
                 Me {
+                    name: "Mirza".to_string(),
                     hand: [
                         Some(HiddenSlot { hints: [].to_vec() }),
                         Some(HiddenSlot {
@@ -261,6 +264,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                     .to_vec(),
                 },
                 Teammate {
+                    name: "Jeff".to_string(),
                     hand: [
                         Some(Slot {
                             card: Card {
@@ -468,11 +472,6 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                 connection_status: Disconnected,
                 is_host: false,
             },
-            OnlinePlayer {
-                name: "".to_string(),
-                connection_status: Disconnected,
-                is_host: false,
-            },
         ]
         .to_vec(),
         game_state: GameStateSnapshot {
@@ -504,6 +503,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
             .to_vec(),
             players: [
                 Me {
+                    name: "mirza".to_string(),
                     hand: [
                         Some(HiddenSlot { hints: [].to_vec() }),
                         Some(HiddenSlot {
@@ -540,6 +540,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                     .to_vec(),
                 },
                 Teammate {
+                    name: "jeff".to_string(),
                     hand: [
                         Some(Slot {
                             card: Card {

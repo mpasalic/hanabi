@@ -212,7 +212,11 @@ async fn client_msg(client_id: ClientId, msg: Message, state: &ServerState) {
 
                 match result {
                     Err(LobbyError::InvalidState(err) | LobbyError::InvalidPlayerAction(err)) => {
-                        println!("error handling message: {:?}", err)
+                        println!("error handling message: {:?}", err);
+                        client
+                            .sender
+                            .send(ServerToClientMessage::Error(err))
+                            .unwrap();
                     }
                     Err(LobbyError::SqlError(err)) => println!("sql error: {:?}", err),
                     _ => {}

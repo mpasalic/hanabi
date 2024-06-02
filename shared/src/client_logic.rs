@@ -2,8 +2,8 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    CardFace, CardSuit, ClientPlayerView, GameConfig, GameEvent, GameState, GameStateSnapshot,
-    HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
+    CardFace, CardSuit, ClientPlayerView, GameConfig, GameEvent, GameOutcome, GameState,
+    GameStateSnapshot, HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -66,6 +66,7 @@ struct Lobby {
 pub enum ServerToClientMessage {
     CreatedGame { session_id: String },
     UpdatedGameState(HanabiGame),
+    Error(String),
 }
 
 #[derive(Debug, Clone)]
@@ -242,6 +243,10 @@ impl GameLog {
         new_game_state.run_effects(effects)?;
         self.log.push((action, new_game_state));
 
+        if let Some(outcome) = self.current_game_state().outcome.clone() {
+            self.history.push(GameEvent::GameOver(outcome.clone()));
+        }
+
         Ok(&self.log.last().unwrap().1)
     }
 
@@ -256,7 +261,7 @@ impl GameLog {
         self.log.pop();
     }
 
-    pub fn into_client_game_state(&self, player: PlayerIndex) -> GameStateSnapshot {
+    pub fn into_client_game_state(&self, player: PlayerIndex, name: String) -> GameStateSnapshot {
         let game_state = self.current_game_state();
         GameStateSnapshot {
             log: self.history.clone(),
@@ -270,6 +275,7 @@ impl GameLog {
                 .enumerate()
                 .map(|(index, p)| match (index, player) {
                     (index, PlayerIndex(player)) if index == player => ClientPlayerView::Me {
+                        name: name.clone(),
                         hand: p
                             .hand
                             .iter()
@@ -281,6 +287,7 @@ impl GameLog {
                             .collect(),
                     },
                     _ => ClientPlayerView::Teammate {
+                        name: name.clone(),
                         hand: p.hand.clone(),
                     },
                 })

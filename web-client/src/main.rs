@@ -441,6 +441,9 @@ impl eframe::App for HelloApp {
                             let new_state = HanabiClient::Loaded(game_state);
                             hanabi_app.update(new_state);
                         }
+                        ServerToClientMessage::Error(error) => {
+                            console_log!("Got Error... {:?}", error);
+                        }
                     },
                     _ => {}
                 };

@@ -59,6 +59,7 @@ pub struct GameState {
 pub enum GameEvent {
     PlayerAction(PlayerIndex, PlayerAction),
     GameEffect(GameEffect),
+    GameOver(GameOutcome),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -91,8 +92,14 @@ pub struct ClientVisibleCard {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ClientPlayerView {
-    Me { hand: Vec<Option<HiddenSlot>> },
-    Teammate { hand: Vec<Option<Slot>> },
+    Me {
+        name: String,
+        hand: Vec<Option<HiddenSlot>>,
+    },
+    Teammate {
+        name: String,
+        hand: Vec<Option<Slot>>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
