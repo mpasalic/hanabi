@@ -50,6 +50,7 @@ pub static BACKGROUND_COLOR: Color = Color::Rgb(36, 37, 47);
 pub static SELECTION_COLOR: Color = Color::Rgb(117, 158, 179);
 pub static TURN_COLOR: Color = Color::Rgb(239, 119, 189);
 pub static NORMAL_TEXT: Color = Color::Rgb(255, 255, 255);
+pub static ALMOST_WHITE: Color = Color::Rgb(200, 200, 200);
 pub static BLOCK_COLOR: Color = Color::Rgb(160, 160, 160);
 pub static DIM_TEXT: Color = Color::Rgb(100, 100, 100);
 pub static DARK_TEXT: Color = Color::Rgb(50, 50, 60);
@@ -188,16 +189,19 @@ pub fn hint_span(hint: &Hint) -> Node<'static> {
     match hint {
         Hint::IsNotSuit(suit) => Span::styled(
             suit.key().to_string(),
-            default_style().fg(colorize_suit_dim(*suit)),
+            default_style().fg(colorize_suit_dim(*suit)).not_bold(),
         ),
-        Hint::IsNotFace(face) => Span::styled(face.key().to_string(), default_style().fg(DIM_TEXT)),
+        Hint::IsNotFace(face) => Span::styled(
+            face.key().to_string(),
+            default_style().fg(DIM_TEXT).not_bold(),
+        ),
         Hint::IsSuit(suit) => Span::styled(
             suit.key().to_string(),
             default_style().fg(colorize_suit(*suit)).bold(),
         ),
         Hint::IsFace(face) => Span::styled(
             face.key().to_string(),
-            default_style().fg(Color::Gray).bold(),
+            default_style().fg(ALMOST_WHITE).bold(),
         ),
     }
     .into()
@@ -267,12 +271,12 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
                     .collect_vec(),
             ),
             Block::new()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Plain)
-                .border_style(default_style().not_bold().fg(DARK_TEXT))
-                .title("\u{eab2}".set_style(default_style().fg(BLOCK_COLOR)))
+                .borders(Borders::TOP)
+                .border_type(BorderType::Double)
+                .border_style(default_style().not_bold().fg(BLOCK_COLOR))
+                .title_top(" hints ".set_style(default_style().fg(BLOCK_COLOR)))
+                // .title_bottom(" \u{eab2} ".set_style(default_style().fg(BLOCK_COLOR)))
                 .title_alignment(Alignment::Center)
-                .title_position(Position::Top)
                 .layout(LayoutStyle {
                     size: taffy::Size {
                         width: auto(),
@@ -315,10 +319,10 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
                     ),
                 ),
             Block::new()
-                .borders(Borders::ALL)
+                .borders(Borders::TOP)
                 .border_type(BorderType::Plain)
-                .border_style(default_style().not_bold().fg(DARK_TEXT))
-                .title("\u{ea76}".set_style(default_style().fg(BLOCK_COLOR).not_bold()))
+                .border_style(default_style().fg(BLOCK_COLOR).not_bold())
+                .title(" \u{f098e} ".set_style(default_style().fg(BLOCK_COLOR).not_bold()))
                 .title_alignment(Alignment::Center)
                 .title_position(Position::Top)
                 .layout(LayoutStyle {
