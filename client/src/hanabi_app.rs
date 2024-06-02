@@ -1325,12 +1325,6 @@ fn render_card_span(face: Option<CardFace>, suit: Option<CardSuit>) -> Span<'sta
     )
 }
 
-enum PlayerRenderState {
-    CurrentTurn,
-    CurrentSelection,
-    Default,
-}
-
 fn render_player(
     player: &ClientPlayerView,
     name: &str,

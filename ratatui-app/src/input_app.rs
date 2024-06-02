@@ -556,40 +556,6 @@ impl AppInput {
     }
 }
 
-// fn main() -> Result<(), Box<dyn Error>> {
-//     // setup terminal
-//     enable_raw_mode()?;
-//     let mut stdout = io::stdout();
-//     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-//     let backend = CrosstermBackend::new(stdout);
-//     let mut terminal = Terminal::new(backend)?;
-
-//     // create app and run it
-//     let app = App::default();
-//     let res = run_app(&mut terminal, app);
-
-//     // restore terminal
-//     disable_raw_mode()?;
-//     execute!(
-//         terminal.backend_mut(),
-//         LeaveAlternateScreen,
-//         DisableMouseCapture
-//     )?;
-//     terminal.show_cursor()?;
-
-//     if let Err(err) = res {
-//         println!("{:?}", err)
-//     }
-
-//     Ok(())
-// }
-
-// fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
-//     loop {
-//         terminal.draw(|f| ui(f, &app))?;
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,38 +570,5 @@ mod tests {
         });
 
         println!("{:#?}", input_layout);
-
-        // GameLayout {
-        //     players: player_nodes
-        //         .iter()
-        //         .map(|p| {
-        //             let layout = tree.layout(*p).unwrap();
-        //             ratatui::layout::Rect {
-        //                 x: layout.location.x as u16,
-        //                 y: layout.location.y as u16,
-        //                 width: layout.size.width as u16,
-        //                 height: layout.size.height as u16,
-        //             }
-        //         })
-        //         .collect(),
-        //     board: tree
-        //         .layout(board_node)
-        //         .map(|b| ratatui::layout::Rect {
-        //             x: b.location.x as u16,
-        //             y: b.location.y as u16,
-        //             width: b.size.width as u16,
-        //             height: b.size.height as u16,
-        //         })
-        //         .unwrap(),
-        //     game_log: tree
-        //         .layout(game_log)
-        //         .map(|b| ratatui::layout::Rect {
-        //             x: b.location.x as u16,
-        //             y: b.location.y as u16,
-        //             width: b.size.width as u16,
-        //             height: b.size.height as u16,
-        //         })
-        //         .unwrap(),
-        // }
     }
 }
