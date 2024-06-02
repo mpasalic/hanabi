@@ -412,20 +412,31 @@ impl eframe::App for HelloApp {
 
                                         console_log!("Key pressed: ({})", key);
 
-                                        bindings
-                                            .iter()
-                                            .find(|binding| KeyCode::Char(key) == binding.key_code)
+                                        bindings.iter().find(|binding| match binding {
+                                            Binding::Keyboard { key_code, .. }
+                                                if KeyCode::Char(key) == *key_code =>
+                                            {
+                                                true
+                                            }
+                                            _ => false,
+                                        })
                                     } else {
                                         None
                                     }
                                 }
 
                                 Event::PointerMoved(pos2) => {
-                                    let hovered_binding = bindings.iter().find(|binding| {
-                                        binding.click_rect.contains(point_to_char(pos2))
-                                    });
+                                    let binding_over_mouse =
+                                        bindings.iter().find(|binding| match binding {
+                                            Binding::MouseClick { click_rect, .. }
+                                                if click_rect.contains(point_to_char(pos2)) =>
+                                            {
+                                                true
+                                            }
+                                            _ => false,
+                                        });
 
-                                    if hovered_binding.is_some() {
+                                    if binding_over_mouse.is_some() {
                                         self.cursor = egui::CursorIcon::PointingHand;
                                     } else {
                                         self.cursor = egui::CursorIcon::Default;
@@ -448,8 +459,13 @@ impl eframe::App for HelloApp {
                                         char_height
                                     );
 
-                                    bindings.iter().find(|binding| {
-                                        binding.click_rect.contains(point_to_char(pos))
+                                    bindings.iter().find(|binding| match binding {
+                                        Binding::MouseClick { click_rect, .. }
+                                            if click_rect.contains(point_to_char(pos)) =>
+                                        {
+                                            true
+                                        }
+                                        _ => false,
                                     })
                                 }
 
@@ -462,24 +478,32 @@ impl eframe::App for HelloApp {
                                 _ => None,
                             };
 
-                            if let Some(binding) = binding_matched {
-                                console_log!("Binding: {:?}", binding);
-                                let result = hanabi_app.handle_action(binding.action).unwrap();
+                            match binding_matched {
+                                Some(
+                                    Binding::Keyboard { action, .. }
+                                    | Binding::MouseClick { action, .. },
+                                ) => {
+                                    console_log!("Binding action: {:?}", action);
+                                    let result = hanabi_app.handle_action(*action).unwrap();
 
-                                match result {
-                                    EventHandlerResult::PlayerAction(action) => {
-                                        self.send_to_server
-                                            .send(ClientToServerMessage::PlayerAction { action })
-                                            .unwrap();
+                                    match result {
+                                        EventHandlerResult::PlayerAction(action) => {
+                                            self.send_to_server
+                                                .send(ClientToServerMessage::PlayerAction {
+                                                    action,
+                                                })
+                                                .unwrap();
+                                        }
+                                        EventHandlerResult::Start => {
+                                            self.send_to_server
+                                                .send(ClientToServerMessage::StartGame)
+                                                .unwrap();
+                                        }
+                                        EventHandlerResult::Quit => {}
+                                        EventHandlerResult::Continue => {}
                                     }
-                                    EventHandlerResult::Start => {
-                                        self.send_to_server
-                                            .send(ClientToServerMessage::StartGame)
-                                            .unwrap();
-                                    }
-                                    EventHandlerResult::Quit => {}
-                                    EventHandlerResult::Continue => {}
                                 }
+                                _ => (),
                             }
                         })
                     });

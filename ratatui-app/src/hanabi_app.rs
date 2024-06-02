@@ -84,10 +84,16 @@ fn root_tree_widget(area: Rect, child: Node<'static>) -> Node<'static> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Binding {
-    pub key_code: KeyCode,
-    pub action: AppAction,
-    pub click_rect: Rect,
+pub enum Binding {
+    Keyboard {
+        key_code: KeyCode,
+        action: AppAction,
+    },
+
+    MouseClick {
+        action: AppAction,
+        click_rect: Rect,
+    },
 }
 
 impl HanabiApp {
@@ -138,8 +144,12 @@ impl HanabiApp {
                     NodeKind::Touchable(ref touch_id) => {
                         let legend_item = legend.iter().find(|l| l.desc == touch_id.touch_id);
                         if let Some(legend_item) = legend_item {
-                            bindings.push(Binding {
+                            bindings.push(Binding::Keyboard {
                                 key_code: legend_item.key_code,
+                                action: legend_item.action.clone(),
+                            });
+
+                            bindings.push(Binding::MouseClick {
                                 action: legend_item.action.clone(),
                                 click_rect: Rect {
                                     x: layout.location.x as u16 + child_layout.location.x as u16,
