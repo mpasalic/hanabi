@@ -98,7 +98,7 @@ pub enum CardBuilderType {
     Discard,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum GameAction {
     Undo,
     StartGame,
@@ -261,7 +261,11 @@ impl GameLog {
         self.log.pop();
     }
 
-    pub fn into_client_game_state(&self, player: PlayerIndex, name: String) -> GameStateSnapshot {
+    pub fn into_client_game_state(
+        &self,
+        player: PlayerIndex,
+        name: Vec<String>,
+    ) -> GameStateSnapshot {
         let game_state = self.current_game_state();
         GameStateSnapshot {
             log: self.history.clone(),
@@ -275,7 +279,7 @@ impl GameLog {
                 .enumerate()
                 .map(|(index, p)| match (index, player) {
                     (index, PlayerIndex(player)) if index == player => ClientPlayerView::Me {
-                        name: name.clone(),
+                        name: name[index].clone(),
                         hand: p
                             .hand
                             .iter()
@@ -287,7 +291,7 @@ impl GameLog {
                             .collect(),
                     },
                     _ => ClientPlayerView::Teammate {
-                        name: name.clone(),
+                        name: name[index].clone(),
                         hand: p.hand.clone(),
                     },
                 })

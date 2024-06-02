@@ -1,7 +1,11 @@
 use std::sync::mpsc::{self, Sender};
 
 use eframe::set_value;
+use egui::FontFamily;
+use egui::FontId;
 use egui::OpenUrl;
+use egui::Pos2;
+use ratatui::layout::Position;
 use ratatui::prelude::Terminal;
 use ratatui_app::hanabi_app::*;
 use ratatui_app::input_app::AppInput;
@@ -53,6 +57,8 @@ pub struct HelloApp {
 
     websocket: Option<WebSocket>,
     web_url: String,
+
+    cursor: egui::CursorIcon,
 }
 
 pub enum TuiState {
@@ -95,6 +101,7 @@ impl Default for HelloApp {
             // player_name: "Player".to_string(),
             // session_id: None,
             // url: "ws://localhost:8080".to_string(),
+            cursor: egui::CursorIcon::Default,
         }
     }
 }
@@ -188,6 +195,7 @@ impl NewCC for HelloApp {
         // let ws = result.unwrap();
 
         setup_custom_fonts(&cc.egui_ctx);
+
         //Creating the Ratatui backend/ Egui widget here
         let mut backend = RataguiBackend::new_with_fonts(
             100,
@@ -220,6 +228,7 @@ impl NewCC for HelloApp {
             server_to_client_sender: server_to_client_sender.clone(),
             websocket: None,
             web_url: web_url,
+            cursor: egui::CursorIcon::Default,
         }
     }
 
@@ -250,6 +259,12 @@ impl eframe::App for HelloApp {
         //call repaint here so that app runs continuously, remove if you dont need that
         ctx.request_repaint();
 
+        let main_font = FontId::new(
+            self.terminal.backend().get_font_size() as f32,
+            FontFamily::Name("JetBrainsMonoNerdFont-Regular".to_owned().into()),
+        );
+
+        let screen_rect = ctx.screen_rect();
         match self.tui_state {
             TuiState::Test { ref mut hanabi_app } => {
                 hanabi_app.draw(&mut self.terminal).unwrap();
@@ -365,22 +380,126 @@ impl eframe::App for HelloApp {
                 ref session_id,
                 ref server_address,
             } => {
-                hanabi_app.draw(&mut self.terminal).unwrap();
+                let bindings: Vec<Binding> = hanabi_app.draw(&mut self.terminal).unwrap();
 
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.add(self.terminal.backend_mut());
+                    let char_height = ui.fonts(|fx| fx.row_height(&main_font));
+                    let char_width = ui.fonts(|fx| self.terminal.backend().get_font_width(fx));
+
+                    let point_to_char = |pos: &Pos2| Position {
+                        x: (pos.x / char_width) as u16,
+                        y: (pos.y / char_height) as u16,
+                    };
+
+                    let term = ui.add(self.terminal.backend_mut());
+
+                    // let hover_binding =
+                    //     term.hover_pos()
+                    //         .map(|pos| point_to_char(&pos))
+                    //         .and_then(|pos| {
+                    //             bindings
+                    //                 .iter()
+                    //                 .find(|binding| binding.click_rect.contains(pos))
+                    //         });
+
+                    ui.output_mut(|o| {
+                        o.cursor_icon = self.cursor;
+                    });
+
+                    // term.on_hover_and_drag_cursor(match hover_binding {
+                    //     Some(_) => {
+                    //         console_log!("Hovered binding: {:?}", hover_binding);
+                    //         egui::CursorIcon::PointingHand
+                    //     }
+                    //     None => egui::CursorIcon::Default,
+                    // });
+
+                    // let hovered_binding = term.on_hover_text_at_pointer(text)
+                    //     .map(|h| {
+                    //         bindings
+                    //             .iter()
+                    //             .find(|binding| binding.click_rect.contains(point_to_char(&h)))
+                    //     })
+                    //     .flatten();
+
+                    // hovered_binding.and_then(|binding| {
+                    //     ui.output_mut(|o| {
+                    //         // o.cursor_icon = match hovered_binding {
+                    //         //     Some(_) => egui::CursorIcon::PointingHand,
+                    //         //     None => egui::CursorIcon::Default,
+                    //         // }
+                    //         o.cursor_icon = egui::CursorIcon::PointingHand;
+                    //     });
+                    //     Some(binding)
+                    // });
 
                     ui.input(|i| {
                         i.events.iter().for_each(|e| {
-                            let key = key_code_to_char(e);
-                            if let Some(key) = key {
-                                println!("Event: {:?} -> {:?}", e, key);
+                            use egui::Event;
 
-                                if key == KeyCode::Char(' ') {
-                                    console_log!("DEBUG: {}", ui.available_width());
+                            let binding_matched = match e {
+                                Event::Copy => None,
+                                Event::Cut => None,
+                                Event::Paste(_) => None,
+                                Event::Text(char) => {
+                                    if char.chars().count() == 1 {
+                                        let key = char.chars().next().unwrap();
+
+                                        console_log!("Key pressed: ({})", key);
+
+                                        bindings
+                                            .iter()
+                                            .find(|binding| KeyCode::Char(key) == binding.key_code)
+                                    } else {
+                                        None
+                                    }
                                 }
 
-                                let result = hanabi_app.handle_event(key).unwrap();
+                                Event::PointerMoved(pos2) => {
+                                    let hovered_binding = bindings.iter().find(|binding| {
+                                        binding.click_rect.contains(point_to_char(pos2))
+                                    });
+
+                                    if hovered_binding.is_some() {
+                                        self.cursor = egui::CursorIcon::PointingHand;
+                                    } else {
+                                        self.cursor = egui::CursorIcon::Default;
+                                    }
+                                    None
+                                }
+                                Event::MouseMoved(_) => None,
+                                Event::PointerButton {
+                                    pos, pressed: true, ..
+                                } => {
+                                    console_log!("Bindings {:?}", bindings);
+                                    let x = (pos.x / char_width) as u16;
+                                    let y = (pos.y / char_height) as u16;
+
+                                    console_log!(
+                                        "Click at: ({}, {}) size=({},{}) ",
+                                        x,
+                                        y,
+                                        char_width,
+                                        char_height
+                                    );
+
+                                    bindings.iter().find(|binding| {
+                                        binding.click_rect.contains(point_to_char(pos))
+                                    })
+                                }
+
+                                Event::Scroll(_) => None,
+                                Event::Zoom(_) => None,
+
+                                Event::Touch { .. } => None,
+                                Event::MouseWheel { .. } => None,
+
+                                _ => None,
+                            };
+
+                            if let Some(binding) = binding_matched {
+                                console_log!("Binding: {:?}", binding);
+                                let result = hanabi_app.handle_action(binding.action).unwrap();
 
                                 match result {
                                     EventHandlerResult::PlayerAction(action) => {
@@ -397,6 +516,54 @@ impl eframe::App for HelloApp {
                                     EventHandlerResult::Continue => {}
                                 }
                             }
+
+                            // let key = key_code_to_char(e);
+                            // if let Some(key) = key {
+                            //     println!("Event: {:?} -> {:?}", e, key);
+
+                            //     if key == KeyCode::Char(' ') {
+                            //         console_log!("DEBUG: {}", ui.available_width());
+                            //     }
+
+                            //     if let Some(binding) = bindings.iter().find(|b| b.key == key) {
+                            //         console_log!("Binding: {:?}", binding);
+                            //         let result = hanabi_app.handle_event(binding.action).unwrap();
+
+                            //         match result {
+                            //             EventHandlerResult::PlayerAction(action) => {
+                            //                 self.send_to_server
+                            //                     .send(ClientToServerMessage::PlayerAction {
+                            //                         action,
+                            //                     })
+                            //                     .unwrap();
+                            //             }
+                            //             EventHandlerResult::Start => {
+                            //                 self.send_to_server
+                            //                     .send(ClientToServerMessage::StartGame)
+                            //                     .unwrap();
+                            //             }
+                            //             EventHandlerResult::Quit => {}
+                            //             EventHandlerResult::Continue => {}
+                            //         }
+                            //     }
+
+                            // let result = hanabi_app.handle_event(key).unwrap();
+
+                            // match result {
+                            //     EventHandlerResult::PlayerAction(action) => {
+                            //         self.send_to_server
+                            //             .send(ClientToServerMessage::PlayerAction { action })
+                            //             .unwrap();
+                            //     }
+                            //     EventHandlerResult::Start => {
+                            //         self.send_to_server
+                            //             .send(ClientToServerMessage::StartGame)
+                            //             .unwrap();
+                            //     }
+                            //     EventHandlerResult::Quit => {}
+                            //     EventHandlerResult::Continue => {}
+                            // }
+                            // }
                         })
                     });
                 });

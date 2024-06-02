@@ -23,10 +23,16 @@ pub type LayoutRect<T> = taffy::Rect<T>;
 pub type LayoutSize<T> = taffy::Size<T>;
 
 #[derive(Clone)]
+pub struct TouchContext {
+    pub touch_id: String,
+}
+
+#[derive(Clone)]
 #[allow(dead_code)]
 pub enum NodeKind<'a> {
     Flexbox,
     Grid,
+    Touchable(TouchContext),
     ScrollView(Text<'a>, i64),
     Text(Text<'a>),
     Span(Span<'a>),
@@ -38,6 +44,7 @@ impl fmt::Debug for NodeKind<'_> {
         match self {
             Self::Flexbox => write!(f, "Flexbox"),
             Self::Grid => write!(f, "Grid"),
+            Self::Touchable(_) => write!(f, "Touchable"),
             Self::Text(_) => f.debug_tuple("Text").finish(),
             Self::Span(_) => f.debug_tuple("Span").finish(),
             Self::Block(_) => f.debug_tuple("Block").finish(),
@@ -57,11 +64,11 @@ impl fmt::Debug for Node<'_> {
 }
 
 pub struct Node<'a> {
-    kind: NodeKind<'a>,
-    style: LayoutStyle,
+    pub kind: NodeKind<'a>,
+    pub style: LayoutStyle,
     cache: Cache,
     unrounded_layout: Layout,
-    final_layout: Layout,
+    pub final_layout: Layout,
     children: Vec<Node<'a>>,
     debug_label: Option<String>,
 }
@@ -203,7 +210,7 @@ impl<'a> Node<'a> {
     }
 
     #[inline(always)]
-    fn node_from_id(&self, node_id: NodeId) -> &Node {
+    pub fn node_from_id(&self, node_id: NodeId) -> &Node {
         if usize::from(node_id) == usize::MAX {
             return self;
         }
@@ -241,6 +248,7 @@ impl<'a> Node<'a> {
             NodeKind::Block(_) => "BLOCK",
             NodeKind::Span(_) => "SPAN",
             NodeKind::ScrollView(_, _) => "SCROLL",
+            NodeKind::Touchable(_) => "TOUCH",
         }
     }
 
@@ -400,6 +408,7 @@ impl<'a> WidgetRef for Node<'a> {
         }
 
         match &self.kind {
+            NodeKind::Touchable(_) => {}
             NodeKind::Flexbox => {}
             NodeKind::Grid => {}
             NodeKind::Text(text_context) => {
@@ -533,6 +542,9 @@ impl<'a> taffy::LayoutPartialTree for Node<'a> {
             };
 
             match &node.kind {
+                NodeKind::Touchable(_) => {
+                    compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs)
+                }
                 NodeKind::Flexbox => compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs),
                 NodeKind::Grid => compute_grid_layout(node, NodeId::from(usize::MAX), inputs),
                 NodeKind::ScrollView(paragraph, _) => {
@@ -624,6 +636,7 @@ impl<'a> taffy::PrintTree for Node<'a> {
             NodeKind::Block(_) => "BLOCK",
             NodeKind::Span(_) => "SPAN",
             NodeKind::ScrollView(_, _) => "SCROLL",
+            NodeKind::Touchable(_) => "TOUCH",
         }
     }
 
@@ -750,6 +763,19 @@ pub trait NodeBuilder<'a>: Into<Node<'a>> {
         let mut node: Node = self.into();
         node.style = style;
         node.children.extend(children.into());
+        node
+    }
+
+    fn touchable(self, touch_id: &str) -> Node<'a> {
+        let mut node = Node {
+            kind: NodeKind::Touchable(TouchContext {
+                touch_id: touch_id.to_string(),
+            }),
+            ..Node::default()
+        };
+
+        node.children.push(self.into());
+
         node
     }
 }
@@ -918,6 +944,18 @@ impl<'a> NodeBuilder<'a> for Node<'a> {
     {
         let mut node: Node = self;
         node.children.push(child.into());
+        node
+    }
+
+    fn touchable(self, touch_id: &str) -> Node<'a> {
+        let mut node = Node {
+            kind: NodeKind::Touchable(TouchContext {
+                touch_id: touch_id.to_string(),
+            }),
+            ..Node::default()
+        };
+        node.children.push(self);
+
         node
     }
 }
