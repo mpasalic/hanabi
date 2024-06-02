@@ -289,6 +289,7 @@ impl eframe::App for HelloApp {
                                     console_log!("Coppied URL! {}", copy_url);
                                     console_log!("UI: {:?}", ui.available_width());
                                     // Doesn't work :(
+                                    // Actually, now I realize that this can't be done whenever you want. There is some weird thread locking stuff and it works outside of input handling.
                                     // ctx.output_mut(|o| {
                                     //     o.copied_text = format!("{}", copy_url);
                                     // });
@@ -391,47 +392,11 @@ impl eframe::App for HelloApp {
                         y: (pos.y / char_height) as u16,
                     };
 
-                    let term = ui.add(self.terminal.backend_mut());
-
-                    // let hover_binding =
-                    //     term.hover_pos()
-                    //         .map(|pos| point_to_char(&pos))
-                    //         .and_then(|pos| {
-                    //             bindings
-                    //                 .iter()
-                    //                 .find(|binding| binding.click_rect.contains(pos))
-                    //         });
+                    ui.add(self.terminal.backend_mut());
 
                     ui.output_mut(|o| {
                         o.cursor_icon = self.cursor;
                     });
-
-                    // term.on_hover_and_drag_cursor(match hover_binding {
-                    //     Some(_) => {
-                    //         console_log!("Hovered binding: {:?}", hover_binding);
-                    //         egui::CursorIcon::PointingHand
-                    //     }
-                    //     None => egui::CursorIcon::Default,
-                    // });
-
-                    // let hovered_binding = term.on_hover_text_at_pointer(text)
-                    //     .map(|h| {
-                    //         bindings
-                    //             .iter()
-                    //             .find(|binding| binding.click_rect.contains(point_to_char(&h)))
-                    //     })
-                    //     .flatten();
-
-                    // hovered_binding.and_then(|binding| {
-                    //     ui.output_mut(|o| {
-                    //         // o.cursor_icon = match hovered_binding {
-                    //         //     Some(_) => egui::CursorIcon::PointingHand,
-                    //         //     None => egui::CursorIcon::Default,
-                    //         // }
-                    //         o.cursor_icon = egui::CursorIcon::PointingHand;
-                    //     });
-                    //     Some(binding)
-                    // });
 
                     ui.input(|i| {
                         i.events.iter().for_each(|e| {
@@ -516,54 +481,6 @@ impl eframe::App for HelloApp {
                                     EventHandlerResult::Continue => {}
                                 }
                             }
-
-                            // let key = key_code_to_char(e);
-                            // if let Some(key) = key {
-                            //     println!("Event: {:?} -> {:?}", e, key);
-
-                            //     if key == KeyCode::Char(' ') {
-                            //         console_log!("DEBUG: {}", ui.available_width());
-                            //     }
-
-                            //     if let Some(binding) = bindings.iter().find(|b| b.key == key) {
-                            //         console_log!("Binding: {:?}", binding);
-                            //         let result = hanabi_app.handle_event(binding.action).unwrap();
-
-                            //         match result {
-                            //             EventHandlerResult::PlayerAction(action) => {
-                            //                 self.send_to_server
-                            //                     .send(ClientToServerMessage::PlayerAction {
-                            //                         action,
-                            //                     })
-                            //                     .unwrap();
-                            //             }
-                            //             EventHandlerResult::Start => {
-                            //                 self.send_to_server
-                            //                     .send(ClientToServerMessage::StartGame)
-                            //                     .unwrap();
-                            //             }
-                            //             EventHandlerResult::Quit => {}
-                            //             EventHandlerResult::Continue => {}
-                            //         }
-                            //     }
-
-                            // let result = hanabi_app.handle_event(key).unwrap();
-
-                            // match result {
-                            //     EventHandlerResult::PlayerAction(action) => {
-                            //         self.send_to_server
-                            //             .send(ClientToServerMessage::PlayerAction { action })
-                            //             .unwrap();
-                            //     }
-                            //     EventHandlerResult::Start => {
-                            //         self.send_to_server
-                            //             .send(ClientToServerMessage::StartGame)
-                            //             .unwrap();
-                            //     }
-                            //     EventHandlerResult::Quit => {}
-                            //     EventHandlerResult::Continue => {}
-                            // }
-                            // }
                         })
                     });
                 });
