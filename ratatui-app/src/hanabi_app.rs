@@ -1,21 +1,20 @@
 use itertools::Itertools;
 use ratatui::{
     prelude::*,
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, ScrollDirection},
 };
-use ratatui::{style::Stylize, widgets::WidgetRef, Frame, Terminal};
-use std::{char::from_digit, collections::HashMap, error::Error, iter, time::Duration};
+use ratatui::{style::Stylize, widgets::WidgetRef, Terminal};
+use std::{char::from_digit, collections::HashMap, error::Error, iter};
 use taffy::{
     style_helpers::{length, percent},
-    JustifyContent, NodeId, Overflow, Point, TraversePartialTree,
+    JustifyContent, Overflow, Point,
 };
 
 use crate::{
     components::*,
     key_code::KeyCode,
     nodes::{
-        GridStack, HStack, LayoutRect, LayoutSize, LayoutStyle, Node, NodeBuilder, NodeKind, Stack,
-        VStack,
+        GridStack, HStack, LayoutRect, LayoutSize, LayoutStyle, Node, NodeBuilder, Stack, VStack,
     },
 };
 use shared::client_logic::*;
@@ -34,10 +33,7 @@ pub enum HanabiClient {
 pub struct HanabiApp {
     pub exit: bool,
     command: CommandState,
-    // menu_options: StatefulList,
     client_state: HanabiClient,
-    connection: Option<Duration>,
-    // game_state: BrowsingLobby | CreatingGame | GameLobby |
     game_log_scroll_adjust: i64,
 }
 
@@ -85,8 +81,19 @@ fn root_tree_widget(area: Rect, child: Node<'static>) -> Node<'static> {
 
 #[derive(Debug, Clone)]
 pub enum Binding<Action> {
-    Keyboard { key_code: KeyCode, action: Action },
-    MouseClick { action: Action, click_rect: Rect },
+    Keyboard {
+        key_code: KeyCode,
+        action: Action,
+    },
+    MouseClick {
+        action: Action,
+        click_rect: Rect,
+    },
+    Scroll {
+        direction: ScrollDirection,
+        action: Action,
+        scroll_rect: Rect,
+    },
 }
 
 impl HanabiApp {
@@ -97,7 +104,6 @@ impl HanabiApp {
                 current_command: CommandBuilder::Empty,
             },
             client_state: game_state,
-            connection: None,
             game_log_scroll_adjust: 0,
         }
     }
@@ -146,6 +152,7 @@ impl HanabiApp {
 
                         // todo don't unwrap
                     }
+
                     _ => {}
                 }
             }
@@ -155,6 +162,11 @@ impl HanabiApp {
             }
             AppAction::Start => {
                 return Ok(EventHandlerResult::Start);
+            }
+
+            AppAction::ScrollGameLog(adjust) => {
+                self.game_log_scroll_adjust =
+                    self.game_log_scroll_adjust.saturating_add(adjust as i64);
             }
         }
 
@@ -208,6 +220,7 @@ impl HanabiApp {
                     }) => {
                         return Ok(EventHandlerResult::Start);
                     }
+                    Some(_) => {}
                     None => {}
                 }
             }
@@ -413,7 +426,8 @@ impl HanabiApp {
                     },
                     Text::from(lines.into_iter().map(|l| l.into()).collect_vec()),
                     self.game_log_scroll_adjust,
-                )],
+                )
+                .scrollable(AppAction::ScrollGameLog(1), AppAction::ScrollGameLog(-1))],
             )
     }
 
@@ -679,6 +693,7 @@ pub enum AppAction {
     Start,
     Quit,
     GameAction(GameAction),
+    ScrollGameLog(i8),
 }
 
 struct LegendItem {
@@ -969,7 +984,6 @@ mod tests {
                 players: players.clone(),
                 game_state: generate_minimal_test_game_state(),
             }),
-            connection: None,
             game_log_scroll_adjust: 0,
         };
 
@@ -1011,7 +1025,6 @@ mod tests {
                 current_command: CommandBuilder::Empty,
             },
             client_state: HanabiClient::Loaded(app_data.clone()),
-            connection: None,
             game_log_scroll_adjust: 0,
         };
         // let mut tree = TreeWidget::new();

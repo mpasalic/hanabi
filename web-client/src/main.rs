@@ -5,8 +5,10 @@ use egui::FontFamily;
 use egui::FontId;
 use egui::OpenUrl;
 use egui::Pos2;
+use egui::Vec2;
 use ratatui::layout::Position;
 use ratatui::prelude::Terminal;
+use ratatui::widgets::ScrollDirection;
 use ratatui_app::hanabi_app::*;
 use ratatui_app::input_app::AppInput;
 use ratatui_app::input_app::InputMode;
@@ -428,17 +430,22 @@ impl eframe::App for HelloApp {
 
                                 Event::PointerMoved(pos2) => {
                                     let binding_over_mouse =
-                                        bindings.iter().find(|binding| match binding {
+                                        bindings.iter().find_map(|binding| match binding {
                                             Binding::MouseClick { click_rect, .. }
                                                 if click_rect.contains(point_to_char(pos2)) =>
                                             {
-                                                true
+                                                Some(egui::CursorIcon::PointingHand)
                                             }
-                                            _ => false,
+                                            Binding::Scroll { scroll_rect, .. }
+                                                if scroll_rect.contains(point_to_char(pos2)) =>
+                                            {
+                                                Some(egui::CursorIcon::AllScroll)
+                                            }
+                                            _ => None,
                                         });
 
-                                    if binding_over_mouse.is_some() {
-                                        self.cursor = egui::CursorIcon::PointingHand;
+                                    if let Some(cursor) = binding_over_mouse {
+                                        self.cursor = cursor;
                                     } else {
                                         self.cursor = egui::CursorIcon::Default;
                                     }
@@ -470,9 +477,20 @@ impl eframe::App for HelloApp {
                                     })
                                 }
 
-                                Event::Scroll(_) => None,
-                                Event::Zoom(_) => None,
+                                Event::Scroll(Vec2 { x, y }) => {
+                                    console_log!("Scroll: ({}, {})", x, y);
+                                    let scroll_value = if *y > 0. { ScrollDirection::Forward } else { ScrollDirection::Backward };
 
+                                    bindings.iter().find(|binding| match binding {
+                                        Binding::Scroll { direction, scroll_rect: _, .. } if *direction == scroll_value
+                                            /* no mouse pos as part of this event? sad... need to do something like this: if scroll_rect.contains(point_to_char(pos)) */ =>
+                                        {
+                                            true
+                                        }
+                                        _ => false,
+                                    })
+                                }
+                                Event::Zoom(_) => None,
                                 Event::Touch { .. } => None,
                                 Event::MouseWheel { .. } => None,
 
@@ -503,6 +521,9 @@ impl eframe::App for HelloApp {
                                         EventHandlerResult::Quit => {}
                                         EventHandlerResult::Continue => {}
                                     }
+                                }
+                                Some (Binding::Scroll { action, .. }) => {
+                                    hanabi_app.handle_action(*action).unwrap();
                                 }
                                 _ => (),
                             }

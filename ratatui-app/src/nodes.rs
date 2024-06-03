@@ -10,12 +10,12 @@ use ratatui::layout::{Margin, Rect};
 use ratatui::text::{Span, Text};
 use ratatui::widgets::block::Title;
 use ratatui::widgets::{
-    Block, BorderType, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-    StatefulWidget, Widget, WidgetRef, Wrap,
+    Block, BorderType, Borders, Paragraph, ScrollDirection, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, StatefulWidget, Widget, WidgetRef, Wrap,
 };
 use taffy::{
     compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_leaf_layout,
-    compute_root_layout, AvailableSpace, Cache, Display, FlexDirection, Layout, NodeId,
+    compute_root_layout, AvailableSpace, Cache, Display, FlexDirection, Layout, NodeId, Point,
     TraversePartialTree,
 };
 use taffy::{style_helpers::*, RoundTree};
@@ -34,6 +34,7 @@ pub struct TouchContext {
 pub enum InteractionKind {
     Click,
     Keyboard(KeyCode),
+    Scroll(ScrollDirection),
 }
 
 pub struct Interaction {
@@ -83,6 +84,7 @@ pub struct Node<'a> {
     cache: Cache,
     unrounded_layout: Layout,
     pub final_layout: Layout,
+    pub absolute_pos: Point<f32>,
     children: Vec<Node<'a>>,
     debug_label: Option<String>,
     pub interactions: Vec<Interaction>,
@@ -96,6 +98,7 @@ impl Default for Node<'_> {
             cache: Cache::new(),
             unrounded_layout: Layout::with_order(0),
             final_layout: Layout::with_order(0),
+            absolute_pos: Point::zero(),
             children: Vec::new(),
             interactions: Vec::new(),
             debug_label: None,
@@ -384,6 +387,10 @@ impl<'a> Node<'a> {
                     cumulative_y + unrounded_layout.size.height - unrounded_layout.padding.bottom,
                 );
             tree.set_final_layout(node_id, &layout);
+            tree.absolute_pos = Point {
+                x: cumulative_x,
+                y: cumulative_y,
+            };
 
             let child_count = tree.child_count(node_id);
             for index in 0..child_count {
@@ -409,6 +416,7 @@ impl<'a> Node<'a> {
         let node = self;
 
         let layout = node.final_layout;
+        let absolute_pos = node.absolute_pos;
 
         for (interaction_kind, action) in self.interactions.iter().filter_map(|interaction| {
             interaction
@@ -421,17 +429,31 @@ impl<'a> Node<'a> {
                     bindings.push(Binding::MouseClick {
                         action,
                         click_rect: Rect {
-                            x: layout.location.x as u16 + layout.location.x as u16,
-                            y: layout.location.y as u16 + layout.location.y as u16,
+                            x: absolute_pos.x as u16,
+                            y: absolute_pos.y as u16,
                             width: layout.size.width as u16,
                             height: layout.size.height as u16,
                         },
                     });
                 }
+
                 InteractionKind::Keyboard(keybinding) => {
                     bindings.push(Binding::Keyboard {
                         key_code: keybinding,
                         action,
+                    });
+                }
+
+                InteractionKind::Scroll(direction) => {
+                    bindings.push(Binding::Scroll {
+                        direction,
+                        action,
+                        scroll_rect: Rect {
+                            x: absolute_pos.x as u16,
+                            y: absolute_pos.y as u16,
+                            width: layout.size.width as u16,
+                            height: layout.size.height as u16,
+                        },
                     });
                 }
             }
@@ -603,7 +625,7 @@ impl<'a> taffy::LayoutPartialTree for Node<'a> {
                 // }
                 NodeKind::Flexbox => compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs),
                 NodeKind::Grid => compute_grid_layout(node, NodeId::from(usize::MAX), inputs),
-                NodeKind::ScrollView(paragraph, _) => {
+                NodeKind::ScrollView(_paragraph, _) => {
                     // compute_leaf_layout(inputs, &node.style, |known_dimensions, available_space| {
                     //     let text_content = paragraph
                     //         .lines
@@ -843,6 +865,26 @@ pub trait NodeBuilder<'a>: Into<Node<'a>> {
             kind: InteractionKind::Keyboard(keybing),
             payload: Box::new(event),
         });
+        node
+    }
+
+    fn scrollable<UntypedEvent: Any + Sized>(
+        self,
+        scroll_backward_event: UntypedEvent,
+        scroll_forward_event: UntypedEvent,
+    ) -> Node<'a> {
+        let mut node: Node = self.into();
+
+        node.interactions.push(Interaction {
+            kind: InteractionKind::Scroll(ScrollDirection::Backward),
+            payload: Box::new(scroll_backward_event),
+        });
+
+        node.interactions.push(Interaction {
+            kind: InteractionKind::Scroll(ScrollDirection::Forward),
+            payload: Box::new(scroll_forward_event),
+        });
+
         node
     }
 }
