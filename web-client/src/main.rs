@@ -381,7 +381,8 @@ impl eframe::App for HelloApp {
                 ref session_id,
                 ref server_address,
             } => {
-                let bindings: Vec<Binding> = hanabi_app.draw(&mut self.terminal).unwrap();
+                let bindings: Vec<Binding<AppAction>> =
+                    hanabi_app.draw(&mut self.terminal).unwrap();
 
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let char_height = ui.fonts(|fx| fx.row_height(&main_font));

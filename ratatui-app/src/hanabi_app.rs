@@ -84,16 +84,9 @@ fn root_tree_widget(area: Rect, child: Node<'static>) -> Node<'static> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Binding {
-    Keyboard {
-        key_code: KeyCode,
-        action: AppAction,
-    },
-
-    MouseClick {
-        action: AppAction,
-        click_rect: Rect,
-    },
+pub enum Binding<Action> {
+    Keyboard { key_code: KeyCode, action: Action },
+    MouseClick { action: Action, click_rect: Rect },
 }
 
 impl HanabiApp {
@@ -110,14 +103,14 @@ impl HanabiApp {
     }
 
     /// runs the application's main loop until the user quits
-    pub fn draw<T>(&mut self, terminal: &mut Terminal<T>) -> BoxedResult<Vec<Binding>>
+    pub fn draw<T>(&mut self, terminal: &mut Terminal<T>) -> BoxedResult<Vec<Binding<AppAction>>>
     where
         T: ratatui::backend::Backend,
     {
         // while !self.exit {
 
         let legend = self.legend_for_command_state(&self.client_state);
-        let mut ui = self.ui(&legend);
+        let mut ui = self.ui(legend);
 
         terminal.draw(|frame| {
             // let tree = root_tree_widget(frame.size(), ui);
@@ -132,41 +125,7 @@ impl HanabiApp {
             ui.render_ref(frame.size(), frame.buffer_mut());
         })?;
 
-        fn find_all_touchables<'a>(legend: &Vec<LegendItem>, node: &Node<'a>) -> Vec<Binding> {
-            let mut bindings = vec![];
-
-            let layout = node.final_layout;
-            for child_id in node.child_ids(NodeId::from(usize::MAX)) {
-                let child = node.node_from_id(child_id);
-                let child_layout = child.final_layout;
-                bindings.extend(find_all_touchables(legend, child));
-                match child.kind {
-                    NodeKind::Touchable(ref touch_id) => {
-                        let legend_item = legend.iter().find(|l| l.desc == touch_id.touch_id);
-                        if let Some(legend_item) = legend_item {
-                            bindings.push(Binding::Keyboard {
-                                key_code: legend_item.key_code,
-                                action: legend_item.action.clone(),
-                            });
-
-                            bindings.push(Binding::MouseClick {
-                                action: legend_item.action.clone(),
-                                click_rect: Rect {
-                                    x: layout.location.x as u16 + child_layout.location.x as u16,
-                                    y: layout.location.y as u16 + child_layout.location.y as u16,
-                                    width: child_layout.size.width as u16,
-                                    height: child_layout.size.height as u16,
-                                },
-                            });
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            bindings
-        }
-
-        let bindings = find_all_touchables(&legend, &ui);
+        let bindings: Vec<Binding<AppAction>> = ui.collect_bindings();
 
         Ok(bindings)
     }
@@ -261,7 +220,7 @@ impl HanabiApp {
         Ok(EventHandlerResult::Continue)
     }
 
-    fn ui(&mut self, legend: &Vec<LegendItem>) -> Node<'static> {
+    fn ui(&mut self, legend: Vec<LegendItem>) -> Node<'static> {
         match &self.client_state {
             HanabiClient::Connecting => self.connecting_ui(),
             HanabiClient::Loaded(HanabiGame::Lobby { players, .. }) => {
@@ -288,7 +247,7 @@ impl HanabiApp {
             }))
     }
 
-    fn lobby_ui(&self, players: &Vec<OnlinePlayer>, legend: &Vec<LegendItem>) -> Node<'static> {
+    fn lobby_ui(&self, players: &Vec<OnlinePlayer>, legend: Vec<LegendItem>) -> Node<'static> {
         self.game_ui(
             GameProps {
                 board_render_state: BoardProps {
@@ -332,7 +291,7 @@ impl HanabiApp {
         //     )
     }
 
-    fn game_ui(&self, game_props: GameProps, legend: &Vec<LegendItem>) -> Node<'static> {
+    fn game_ui(&self, game_props: GameProps, legend: Vec<LegendItem>) -> Node<'static> {
         use taffy::prelude::*;
 
         GridStack::new().children(
@@ -413,7 +372,7 @@ impl HanabiApp {
                         grid_column: span(2),
                         ..HStack::default_layout()
                     },
-                    legend.iter().map(game_action_item_tree).collect_vec(),
+                    legend.into_iter().map(game_action_item_tree).collect_vec(),
                 ),
             ],
         )
@@ -728,8 +687,8 @@ struct LegendItem {
     action: AppAction,
 }
 
-fn game_action_item_tree(item: &LegendItem) -> Node<'static> {
-    let item_text = |a: &LegendItem| match a {
+fn game_action_item_tree(item: LegendItem) -> Node<'static> {
+    let item_text = match &item {
         LegendItem {
             desc,
             key_code: KeyCode::Char(key),
@@ -751,9 +710,10 @@ fn game_action_item_tree(item: &LegendItem) -> Node<'static> {
         _ => panic!("Unknown keycode"),
     };
 
-    Span::from(item_text(item))
+    Span::from(item_text)
         .style(default_style().bg(SELECTION_COLOR).fg(Color::White))
-        .touchable(item.desc.as_str())
+        .touchable(item.action)
+        .keybinding(item.key_code, item.action)
 }
 
 fn board_node_props(game_state_snapshot: &GameStateSnapshot) -> BoardProps {
@@ -1020,7 +980,7 @@ mod tests {
             height: 46,
         });
 
-        let tree_widget = root_tree_widget(buf.area, app.game_ui(app.clone().into(), &vec![]));
+        let tree_widget = root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
 
         tree_widget.render_ref(buf.area, &mut buf);
 
@@ -1081,7 +1041,7 @@ mod tests {
                 game_state,
             } => {
                 let tree_widget =
-                    root_tree_widget(buf.area, app.game_ui(app.clone().into(), &vec![]));
+                    root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
                 tree_widget.render_ref(buf.area, &mut buf);
             }
             _ => todo!(),

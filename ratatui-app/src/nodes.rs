@@ -1,5 +1,8 @@
+use std::any::Any;
 use std::fmt;
 
+use crate::hanabi_app::Binding;
+use crate::key_code::KeyCode;
 use crate::text::{text_measure_function, FontMetrics, TextContext, WritingMode};
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
@@ -27,12 +30,23 @@ pub struct TouchContext {
     pub touch_id: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum InteractionKind {
+    Click,
+    Keyboard(KeyCode),
+}
+
+pub struct Interaction {
+    pub kind: InteractionKind,
+    pub payload: Box<dyn Any>,
+}
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub enum NodeKind<'a> {
     Flexbox,
     Grid,
-    Touchable(TouchContext),
+    // Touchable(TouchContext),
     ScrollView(Text<'a>, i64),
     Text(Text<'a>),
     Span(Span<'a>),
@@ -44,7 +58,7 @@ impl fmt::Debug for NodeKind<'_> {
         match self {
             Self::Flexbox => write!(f, "Flexbox"),
             Self::Grid => write!(f, "Grid"),
-            Self::Touchable(_) => write!(f, "Touchable"),
+            // Self::Touchable(_) => write!(f, "Touchable"),
             Self::Text(_) => f.debug_tuple("Text").finish(),
             Self::Span(_) => f.debug_tuple("Span").finish(),
             Self::Block(_) => f.debug_tuple("Block").finish(),
@@ -71,6 +85,7 @@ pub struct Node<'a> {
     pub final_layout: Layout,
     children: Vec<Node<'a>>,
     debug_label: Option<String>,
+    pub interactions: Vec<Interaction>,
 }
 
 impl Default for Node<'_> {
@@ -82,6 +97,7 @@ impl Default for Node<'_> {
             unrounded_layout: Layout::with_order(0),
             final_layout: Layout::with_order(0),
             children: Vec::new(),
+            interactions: Vec::new(),
             debug_label: None,
         }
     }
@@ -248,7 +264,7 @@ impl<'a> Node<'a> {
             NodeKind::Block(_) => "BLOCK",
             NodeKind::Span(_) => "SPAN",
             NodeKind::ScrollView(_, _) => "SCROLL",
-            NodeKind::Touchable(_) => "TOUCH",
+            // NodeKind::Touchable(_) => "TOUCH",
         }
     }
 
@@ -387,6 +403,46 @@ impl<'a> Node<'a> {
             ..self
         }
     }
+
+    pub fn collect_bindings<EventType: Clone + 'static>(&self) -> Vec<Binding<EventType>> {
+        let mut bindings = vec![];
+        let node = self;
+
+        let layout = node.final_layout;
+
+        for (interaction_kind, action) in self.interactions.iter().filter_map(|interaction| {
+            interaction
+                .payload
+                .downcast_ref::<EventType>()
+                .map(|event| (interaction.kind.clone(), event.clone()))
+        }) {
+            match interaction_kind {
+                InteractionKind::Click => {
+                    bindings.push(Binding::MouseClick {
+                        action,
+                        click_rect: Rect {
+                            x: layout.location.x as u16 + layout.location.x as u16,
+                            y: layout.location.y as u16 + layout.location.y as u16,
+                            width: layout.size.width as u16,
+                            height: layout.size.height as u16,
+                        },
+                    });
+                }
+                InteractionKind::Keyboard(keybinding) => {
+                    bindings.push(Binding::Keyboard {
+                        key_code: keybinding,
+                        action,
+                    });
+                }
+            }
+        }
+
+        for child_id in node.child_ids(NodeId::from(usize::MAX)) {
+            let child = node.node_from_id(child_id);
+            bindings.extend(child.collect_bindings());
+        }
+        bindings
+    }
 }
 
 impl<'a> WidgetRef for Node<'a> {
@@ -408,7 +464,7 @@ impl<'a> WidgetRef for Node<'a> {
         }
 
         match &self.kind {
-            NodeKind::Touchable(_) => {}
+            // NodeKind::Touchable(_) => {}
             NodeKind::Flexbox => {}
             NodeKind::Grid => {}
             NodeKind::Text(text_context) => {
@@ -542,9 +598,9 @@ impl<'a> taffy::LayoutPartialTree for Node<'a> {
             };
 
             match &node.kind {
-                NodeKind::Touchable(_) => {
-                    compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs)
-                }
+                // NodeKind::Touchable(_) => {
+                //     compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs)
+                // }
                 NodeKind::Flexbox => compute_flexbox_layout(node, NodeId::from(usize::MAX), inputs),
                 NodeKind::Grid => compute_grid_layout(node, NodeId::from(usize::MAX), inputs),
                 NodeKind::ScrollView(paragraph, _) => {
@@ -636,7 +692,7 @@ impl<'a> taffy::PrintTree for Node<'a> {
             NodeKind::Block(_) => "BLOCK",
             NodeKind::Span(_) => "SPAN",
             NodeKind::ScrollView(_, _) => "SCROLL",
-            NodeKind::Touchable(_) => "TOUCH",
+            // NodeKind::Touchable(_) => "TOUCH",
         }
     }
 
@@ -766,16 +822,27 @@ pub trait NodeBuilder<'a>: Into<Node<'a>> {
         node
     }
 
-    fn touchable(self, touch_id: &str) -> Node<'a> {
-        let mut node = Node {
-            kind: NodeKind::Touchable(TouchContext {
-                touch_id: touch_id.to_string(),
-            }),
-            ..Node::default()
-        };
+    fn touchable<UntypedEvent: Any + Sized>(self, event: UntypedEvent) -> Node<'a> {
+        let mut node: Node = self.into();
 
-        node.children.push(self.into());
+        node.interactions.push(Interaction {
+            kind: InteractionKind::Click,
+            payload: Box::new(event),
+        });
+        node
+    }
 
+    fn keybinding<UntypedEvent: Any + Sized>(
+        self,
+        keybing: KeyCode,
+        event: UntypedEvent,
+    ) -> Node<'a> {
+        let mut node: Node = self.into();
+
+        node.interactions.push(Interaction {
+            kind: InteractionKind::Keyboard(keybing),
+            payload: Box::new(event),
+        });
         node
     }
 }
@@ -947,15 +1014,27 @@ impl<'a> NodeBuilder<'a> for Node<'a> {
         node
     }
 
-    fn touchable(self, touch_id: &str) -> Node<'a> {
-        let mut node = Node {
-            kind: NodeKind::Touchable(TouchContext {
-                touch_id: touch_id.to_string(),
-            }),
-            ..Node::default()
-        };
-        node.children.push(self);
+    fn touchable<UntypedEvent: Any + Sized>(self, event: UntypedEvent) -> Node<'a> {
+        let mut node: Node = self.into();
 
+        node.interactions.push(Interaction {
+            kind: InteractionKind::Click,
+            payload: Box::new(event),
+        });
+        node
+    }
+
+    fn keybinding<UntypedEvent: Any + Sized>(
+        self,
+        keybing: KeyCode,
+        event: UntypedEvent,
+    ) -> Node<'a> {
+        let mut node: Node = self.into();
+
+        node.interactions.push(Interaction {
+            kind: InteractionKind::Keyboard(keybing),
+            payload: Box::new(event),
+        });
         node
     }
 }
