@@ -40,6 +40,15 @@ pub struct GameConfig {
     pub seed: u64,
 }
 
+// TODO Maybe use something like this for clarity
+// #[derive(Serialize, Deserialize, Debug, Clone)]
+// pub enum GameStatus {
+//     WaitingToStart,
+//     Playing { turn_count: usize },
+//     LastRound { turns_remaining: usize },
+//     Finished(GameOutcome),
+// }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameState {
     pub draw_pile: Vec<Card>, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
@@ -53,6 +62,7 @@ pub struct GameState {
     pub outcome: Option<GameOutcome>,
     pub history: Vec<GameEffect>,
     pub game_config: GameConfig,
+    // pub status: GameStatus,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -150,7 +160,7 @@ pub enum Hint {
     IsNotFace(CardFace),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Slot {
     pub card: Card,
     pub hints: Vec<Hint>,
@@ -166,7 +176,7 @@ pub struct Player {
     pub hand: Vec<Option<Slot>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GameOutcome {
     Win,
     Fail { score: usize },

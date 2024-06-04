@@ -201,7 +201,7 @@ impl GameState {
             (_, _, 0, false) => Some(GameOutcome::Fail {
                 score: self.played_cards.len(),
             }),
-            (current_turn, Some(last_turn), _, _) if current_turn == last_turn => {
+            (current_turn, Some(last_turn), _, _) if current_turn > last_turn => {
                 Some(GameOutcome::Fail {
                     score: self.played_cards.len(),
                 })
@@ -261,8 +261,10 @@ impl GameState {
                             card: card,
                             hints: Vec::new(),
                         });
-                } else {
-                    self.last_turn = Some(self.turn);
+                }
+
+                if self.draw_pile.len() == 0 && self.last_turn.is_none() {
+                    self.last_turn = Some(self.turn + self.players.len() as u8);
                 }
             }
             GameEffect::RemoveCard(PlayerIndex(player_index), SlotIndex(slot_index)) => {
@@ -389,4 +391,117 @@ pub fn new_seeded_deck<R: SeedableRng + Rng>(seed: u64) -> Vec<Card> {
         deck.swap(index, swap);
     }
     return deck;
+}
+
+#[cfg(test)]
+
+mod tests {
+
+    use assert_matches::assert_matches;
+
+    use super::*;
+
+    use CardFace::*;
+    use CardSuit::*;
+
+    fn card(face: CardFace, suit: CardSuit) -> Card {
+        Card { face, suit }
+    }
+
+    #[test]
+    fn test_drawing_last_card() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Green)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                Player {
+                    hand: vec![
+                        Some(Slot {
+                            card: card(One, Red),
+                            hints: vec![],
+                        }),
+                        Some(Slot {
+                            card: card(Two, Red),
+                            hints: vec![],
+                        }),
+                    ],
+                },
+                Player {
+                    hand: vec![
+                        Some(Slot {
+                            card: card(One, Blue),
+                            hints: vec![],
+                        }),
+                        Some(Slot {
+                            card: card(Two, Blue),
+                            hints: vec![],
+                        }),
+                    ],
+                },
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+            game_config: GameConfig {
+                num_players: 2,
+                hand_size: 2,
+                num_fuses: 3,
+                num_hints: 8,
+                starting_player: PlayerIndex(0),
+                seed: 0,
+            },
+        };
+
+        let action = PlayerAction::PlayCard(SlotIndex(0));
+        let effects = game_state.play(action).unwrap();
+        let result = game_state.run_effects(effects);
+
+        assert!(result.is_ok());
+        assert_matches!(
+            &game_state,
+            GameState {
+                last_turn: Some(12),
+                outcome: None,
+                draw_pile,
+                ..
+            } if draw_pile.is_empty()
+        );
+
+        let action = PlayerAction::PlayCard(SlotIndex(0));
+        let effects = game_state.play(action).unwrap();
+        let result = game_state.run_effects(effects);
+
+        assert!(result.is_ok());
+        assert_matches!(
+            &game_state,
+            GameState {
+                last_turn: Some(12),
+                outcome: None,
+                players,
+                draw_pile,
+                ..
+            } if draw_pile.is_empty() && players[1].hand[0].is_none()
+        );
+
+        // last turn!
+        let action = PlayerAction::PlayCard(SlotIndex(1));
+        let effects = game_state.play(action).unwrap();
+        let result = game_state.run_effects(effects);
+
+        assert!(result.is_ok());
+        assert_matches!(
+            &game_state,
+            GameState {
+                last_turn: Some(12),
+                outcome: Some(GameOutcome::Fail { score: _ }),
+                players,
+                draw_pile,
+                ..
+            } if draw_pile.is_empty() && players[0].hand[1].is_none()
+        );
+    }
 }
