@@ -78,14 +78,18 @@ impl GameLobby {
                     GameLobbyStatus::Playing(game_log) => HanabiGame::Started {
                         session_id: self.session_id.0.clone(),
                         players: players.clone(),
-                        game_state: game_log
-                            .into_client_game_state(PlayerIndex(index), p.name.clone()),
+                        game_state: game_log.into_client_game_state(
+                            PlayerIndex(index),
+                            self.players.iter().map(|p| p.name.clone()).collect(),
+                        ),
                     },
                     GameLobbyStatus::Ended(game_log) => HanabiGame::Ended {
                         session_id: self.session_id.0.clone(),
                         players: players.clone(),
-                        game_state: game_log
-                            .into_client_game_state(PlayerIndex(index), p.name.clone()),
+                        game_state: game_log.into_client_game_state(
+                            PlayerIndex(index),
+                            self.players.iter().map(|p| p.name.clone()).collect(),
+                        ),
                         revealed_game_state: game_log.current_game_state().clone(),
                     },
                 },

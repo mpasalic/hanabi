@@ -1,16 +1,21 @@
 use itertools::Itertools;
 use ratatui::{
     prelude::*,
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, ScrollDirection},
 };
-use ratatui::{style::Stylize, widgets::WidgetRef, Frame, Terminal};
-use std::{char::from_digit, collections::HashMap, error::Error, iter, time::Duration};
-use taffy::{Overflow, Point};
+use ratatui::{style::Stylize, widgets::WidgetRef, Terminal};
+use std::{char::from_digit, collections::HashMap, error::Error, iter};
+use taffy::{
+    style_helpers::{length, percent},
+    JustifyContent, Overflow, Point,
+};
 
 use crate::{
     components::*,
     key_code::KeyCode,
-    nodes::{GridStack, HStack, LayoutRect, LayoutStyle, Node, NodeBuilder, Stack, VStack},
+    nodes::{
+        GridStack, HStack, LayoutRect, LayoutSize, LayoutStyle, Node, NodeBuilder, Stack, VStack,
+    },
 };
 use shared::client_logic::*;
 use shared::model::*;
@@ -28,10 +33,7 @@ pub enum HanabiClient {
 pub struct HanabiApp {
     pub exit: bool,
     command: CommandState,
-    // menu_options: StatefulList,
     client_state: HanabiClient,
-    connection: Option<Duration>,
-    // game_state: BrowsingLobby | CreatingGame | GameLobby |
     game_log_scroll_adjust: i64,
 }
 
@@ -72,9 +74,26 @@ fn root_tree_widget(area: Rect, child: Node<'static>) -> Node<'static> {
         width: length(area.width),
         height: length(area.height),
     });
-    tree.print_tree();
+    // tree.print_tree();
 
     tree
+}
+
+#[derive(Debug, Clone)]
+pub enum Binding<Action> {
+    Keyboard {
+        key_code: KeyCode,
+        action: Action,
+    },
+    MouseClick {
+        action: Action,
+        click_rect: Rect,
+    },
+    Scroll {
+        direction: ScrollDirection,
+        action: Action,
+        scroll_rect: Rect,
+    },
 }
 
 impl HanabiApp {
@@ -85,27 +104,73 @@ impl HanabiApp {
                 current_command: CommandBuilder::Empty,
             },
             client_state: game_state,
-            connection: None,
             game_log_scroll_adjust: 0,
         }
     }
 
     /// runs the application's main loop until the user quits
-    pub fn draw<T>(&mut self, terminal: &mut Terminal<T>) -> BoxedResult<()>
+    pub fn draw<T>(&mut self, terminal: &mut Terminal<T>) -> BoxedResult<Vec<Binding<AppAction>>>
     where
         T: ratatui::backend::Backend,
     {
         // while !self.exit {
 
-        terminal.draw(|frame| self.ui(frame))?;
-        // self.handle_events()?;
-        // }
+        let legend = self.legend_for_command_state(&self.client_state);
+        let mut ui = self.ui(legend);
 
-        Ok(())
+        terminal.draw(|frame| {
+            // let tree = root_tree_widget(frame.size(), ui);
+            ui.compute_layout(LayoutSize {
+                width: length(frame.size().width as f32),
+                height: length(frame.size().height as f32),
+            });
+
+            let area = frame.size();
+            frame.buffer_mut().set_style(area, default_style());
+
+            ui.render_ref(frame.size(), frame.buffer_mut());
+        })?;
+
+        let bindings: Vec<Binding<AppAction>> = ui.collect_bindings();
+
+        Ok(bindings)
     }
 
     pub fn update(&mut self, state: HanabiClient) {
         self.client_state = state;
+    }
+
+    pub fn handle_action(&mut self, app_action: AppAction) -> BoxedResult<EventHandlerResult> {
+        match app_action {
+            AppAction::GameAction(game_action) => {
+                let (builder, player_action) =
+                    process_app_action(self.command.clone(), game_action);
+                self.command = builder;
+                match player_action {
+                    Some(action) => {
+                        return Ok(EventHandlerResult::PlayerAction(action));
+
+                        // todo don't unwrap
+                    }
+
+                    _ => {}
+                }
+            }
+
+            AppAction::Quit => {
+                return Ok(EventHandlerResult::Quit);
+            }
+            AppAction::Start => {
+                return Ok(EventHandlerResult::Start);
+            }
+
+            AppAction::ScrollGameLog(adjust) => {
+                self.game_log_scroll_adjust =
+                    self.game_log_scroll_adjust.saturating_add(adjust as i64);
+            }
+        }
+
+        Ok(EventHandlerResult::Continue)
     }
 
     pub fn handle_event(&mut self, key: KeyCode) -> BoxedResult<EventHandlerResult> {
@@ -155,6 +220,7 @@ impl HanabiApp {
                     }) => {
                         return Ok(EventHandlerResult::Start);
                     }
+                    Some(_) => {}
                     None => {}
                 }
             }
@@ -167,61 +233,78 @@ impl HanabiApp {
         Ok(EventHandlerResult::Continue)
     }
 
-    fn ui(&mut self, frame: &mut Frame) {
+    fn ui(&mut self, legend: Vec<LegendItem>) -> Node<'static> {
         match &self.client_state {
-            HanabiClient::Connecting => self.connecting_ui(frame),
+            HanabiClient::Connecting => self.connecting_ui(),
             HanabiClient::Loaded(HanabiGame::Lobby { players, .. }) => {
-                self.lobby_ui(players, frame);
+                self.lobby_ui(players, legend)
             }
-            HanabiClient::Loaded(_) => {
-                let tree = root_tree_widget(frame.size(), self.game_ui(self.clone().into()));
-
-                let area = frame.size();
-                frame.buffer_mut().set_style(area, default_style());
-
-                tree.render_ref(frame.size(), frame.buffer_mut());
-            }
+            HanabiClient::Loaded(_) => self.game_ui(self.clone().into(), legend),
         }
     }
 
-    fn connecting_ui(&self, frame: &mut Frame) {
-        let text: Text = Text::from(if self.exit {
-            "Exiting...".to_string()
-        } else {
-            "Conecting...".to_string()
-        });
-        let log = Paragraph::new(text);
-
-        frame.render_widget(log, frame.size());
+    fn connecting_ui(&self) -> Node<'static> {
+        HStack::new()
+            .layout(LayoutStyle {
+                size: LayoutSize {
+                    width: percent(1.),
+                    height: percent(1.),
+                },
+                justify_content: Some(JustifyContent::Center),
+                ..HStack::default_layout()
+            })
+            .child(Span::raw(if self.exit {
+                "Exiting..."
+            } else {
+                "Conecting..."
+            }))
     }
 
-    fn lobby_ui(&self, players: &Vec<OnlinePlayer>, frame: &mut Frame) {
-        let lobby_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title("Game Lobby");
-
-        let mut contents: Vec<String> = Vec::new();
-
-        let connection = match self.connection {
-            Some(time) => {
-                let elapsed = time.as_millis();
-                format!("Connected. Last ping {}ms", elapsed)
-            }
-            None => "Connecting...".to_string(),
-        };
-        contents.push(connection);
-
-        let content: Vec<_> = players.iter().map(|p| p.name.clone()).collect();
-        contents.extend(content);
-
-        let text = Text::from_iter(contents);
-        let players_paragraph = Paragraph::new(text).block(lobby_block);
-
-        frame.render_widget(players_paragraph, frame.size());
+    fn lobby_ui(&self, players: &Vec<OnlinePlayer>, legend: Vec<LegendItem>) -> Node<'static> {
+        self.game_ui(
+            GameProps {
+                board_render_state: BoardProps {
+                    highest_played_card_for_suit: HashMap::new(),
+                    discards: vec![],
+                    draw_remaining: 0,
+                    hints_remaining: 0,
+                    fuse_remaining: 0,
+                },
+                players: players
+                    .iter()
+                    .map(|p| {
+                        player_node_props(p.name.clone(), vec![None; 5], PlayerRenderState::Default)
+                    })
+                    .collect_vec(),
+                game_log: vec![],
+            },
+            legend,
+        )
+        // VStack::new()
+        //     .layout(LayoutStyle {
+        //         size: LayoutSize {
+        //             width: percent(1.),
+        //             height: percent(1.),
+        //         },
+        //         justify_content: Some(JustifyContent::Center),
+        //         ..VStack::default_layout()
+        //     })
+        //     .child(
+        //         Block::new()
+        //             .borders(Borders::ALL)
+        //             .border_type(BorderType::Rounded)
+        //             .title("Game Lobby")
+        //             .layout(VStack::default_layout())
+        //             .childs(
+        //                 players
+        //                     .iter()
+        //                     .map(|p| Span::raw(p.name.clone()).node())
+        //                     .collect_vec(),
+        //             ),
+        //     )
     }
 
-    fn game_ui(&self, game_props: GameProps) -> Node<'static> {
+    fn game_ui(&self, game_props: GameProps, legend: Vec<LegendItem>) -> Node<'static> {
         use taffy::prelude::*;
 
         GridStack::new().children(
@@ -307,10 +390,7 @@ impl HanabiApp {
                         grid_column: span(2),
                         ..HStack::default_layout()
                     },
-                    self.legend_for_command_state(&self.client_state)
-                        .iter()
-                        .map(game_action_item_tree)
-                        .collect_vec(),
+                    legend.into_iter().map(game_action_item_tree).collect_vec(),
                 ),
             ],
         )
@@ -351,7 +431,8 @@ impl HanabiApp {
                     },
                     Text::from(lines.into_iter().map(|l| l.into()).collect_vec()),
                     self.game_log_scroll_adjust,
-                )],
+                )
+                .scrollable(AppAction::ScrollGameLog(1), AppAction::ScrollGameLog(-1))],
             )
     }
 
@@ -612,10 +693,12 @@ fn generate_game_log(game_state: &GameStateSnapshot, players: &Vec<OnlinePlayer>
     log_lines
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum AppAction {
     Start,
     Quit,
     GameAction(GameAction),
+    ScrollGameLog(i8),
 }
 
 struct LegendItem {
@@ -624,8 +707,8 @@ struct LegendItem {
     action: AppAction,
 }
 
-fn game_action_item_tree(item: &LegendItem) -> Node<'static> {
-    let item_text = |a: &LegendItem| match a {
+fn game_action_item_tree(item: LegendItem) -> Node<'static> {
+    let item_text = match &item {
         LegendItem {
             desc,
             key_code: KeyCode::Char(key),
@@ -647,9 +730,10 @@ fn game_action_item_tree(item: &LegendItem) -> Node<'static> {
         _ => panic!("Unknown keycode"),
     };
 
-    Span::from(item_text(item))
+    Span::from(item_text)
         .style(default_style().bg(SELECTION_COLOR).fg(Color::White))
-        .into()
+        .touchable(item.action)
+        .keybinding(item.key_code, item.action)
 }
 
 fn board_node_props(game_state_snapshot: &GameStateSnapshot) -> BoardProps {
@@ -915,7 +999,6 @@ mod tests {
                 players: players.clone(),
                 game_state: generate_minimal_test_game_state(),
             }),
-            connection: None,
             game_log_scroll_adjust: 0,
         };
 
@@ -926,7 +1009,7 @@ mod tests {
             height: 46,
         });
 
-        let tree_widget = root_tree_widget(buf.area, app.game_ui(app.clone().into()));
+        let tree_widget = root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
 
         tree_widget.render_ref(buf.area, &mut buf);
 
@@ -957,7 +1040,6 @@ mod tests {
                 current_command: CommandBuilder::Empty,
             },
             client_state: HanabiClient::Loaded(app_data.clone()),
-            connection: None,
             game_log_scroll_adjust: 0,
         };
         // let mut tree = TreeWidget::new();
@@ -986,7 +1068,8 @@ mod tests {
                 players,
                 game_state,
             } => {
-                let tree_widget = root_tree_widget(buf.area, app.game_ui(app.clone().into()));
+                let tree_widget =
+                    root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
                 tree_widget.render_ref(buf.area, &mut buf);
             }
             _ => todo!(),
