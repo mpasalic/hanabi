@@ -193,6 +193,7 @@ pub fn process_app_action(
         (C::Hint(HintState::ChoosingHint { .. }), A::Undo) => C::Hint(HintState::ChoosingPlayer),
 
         (C::Play(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
+
         (C::Discard(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
 
         // ------ other wise do nothing -------
