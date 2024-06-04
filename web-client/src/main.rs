@@ -406,18 +406,16 @@ impl eframe::App for HelloApp {
                             use egui::Event;
 
                             let binding_matched = match e {
-                                Event::Copy => None,
-                                Event::Cut => None,
-                                Event::Paste(_) => None,
-                                Event::Text(char) => {
-                                    if char.chars().count() == 1 {
-                                        let key = char.chars().next().unwrap();
+                                
+                                  Event::Text(_) | Event::Key { .. } => {
+                                    let key = key_code_to_char(e);
 
-                                        console_log!("Key pressed: ({})", key);
+                                    if let Some(key_code) = key {
+                                        console_log!("Key pressed: ({:?})", key_code);
 
                                         bindings.iter().find(|binding| match binding {
-                                            Binding::Keyboard { key_code, .. }
-                                                if KeyCode::Char(key) == *key_code =>
+                                            Binding::Keyboard { key_code: binding_key_code, .. }
+                                                if key_code == *binding_key_code =>
                                             {
                                                 true
                                             }
@@ -477,7 +475,7 @@ impl eframe::App for HelloApp {
                                     })
                                 }
 
-                                Event::Scroll(Vec2 { x, y }) => {
+                                Event::Scroll(Vec2 { x, y }) | Event::MouseWheel { delta: Vec2{ x, y}, .. } => {
                                     console_log!("Scroll: ({}, {})", x, y);
                                     let scroll_value = if *y > 0. { ScrollDirection::Forward } else { ScrollDirection::Backward };
 
@@ -492,7 +490,6 @@ impl eframe::App for HelloApp {
                                 }
                                 Event::Zoom(_) => None,
                                 Event::Touch { .. } => None,
-                                Event::MouseWheel { .. } => None,
 
                                 _ => None,
                             };
