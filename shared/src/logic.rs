@@ -270,7 +270,7 @@ impl GameState {
                     .players
                     .get_mut(player_index)
                     .ok_or_else(|| "Invalid current player")?;
-                player.hand.get(slot_index).take();
+                player.hand[slot_index] = None;
             }
             GameEffect::AddToDiscrard(card) => {
                 self.discard_pile.push(card);
