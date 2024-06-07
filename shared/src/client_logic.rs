@@ -142,12 +142,7 @@ pub fn process_app_action(
         }),
 
         (C::PlayingCard(CardState::ChoosingCard { .. }), A::SelectCard(slot_index)) => {
-            return (
-                CommandState {
-                    current_command: C::Empty,
-                },
-                Some(PlayerAction::PlayCard(slot_index)),
-            )
+            C::ConfirmingAction(PlayerAction::PlayCard(slot_index))
         }
 
         (C::DiscardingCard(CardState::ChoosingCard { .. }), A::SelectCard(slot_index)) => {
@@ -271,7 +266,7 @@ impl GameLog {
         let game_state = self.current_game_state();
         GameStateSnapshot {
             log: self.history.clone(),
-            player_snapshot: player,
+            this_client_player_index: player,
             draw_pile_count: game_state.draw_pile.len() as u8,
             played_cards: game_state.played_cards.clone(),
             discard_pile: game_state.discard_pile.clone(),
@@ -300,7 +295,7 @@ impl GameLog {
                 .collect(),
             remaining_bomb_count: game_state.remaining_bomb_count,
             remaining_hint_count: game_state.remaining_hint_count,
-            turn: game_state.current_player_index(),
+            current_turn_player_index: game_state.current_player_index(),
             num_rounds: game_state.turn,
             last_turn: game_state.last_turn,
             outcome: game_state.outcome,

@@ -233,13 +233,15 @@ impl HanabiApp {
         Ok(EventHandlerResult::Continue)
     }
 
-    fn ui(&mut self, _legend_description: String, legend: Vec<LegendItem>) -> Node<'static> {
+    fn ui(&mut self, legend_description: String, legend: Vec<LegendItem>) -> Node<'static> {
         match &self.client_state {
             HanabiClient::Connecting => self.connecting_ui(),
             HanabiClient::Loaded(HanabiGame::Lobby { players, .. }) => {
-                self.lobby_ui(players, legend)
+                self.lobby_ui(players, legend_description, legend)
             }
-            HanabiClient::Loaded(_) => self.game_ui(self.clone().into(), legend),
+            HanabiClient::Loaded(_) => {
+                self.game_ui(self.clone().into(), legend_description, legend)
+            }
         }
     }
 
@@ -260,7 +262,12 @@ impl HanabiApp {
             }))
     }
 
-    fn lobby_ui(&self, players: &Vec<OnlinePlayer>, legend: Vec<LegendItem>) -> Node<'static> {
+    fn lobby_ui(
+        &self,
+        players: &Vec<OnlinePlayer>,
+        legend_description: String,
+        legend: Vec<LegendItem>,
+    ) -> Node<'static> {
         self.game_ui(
             GameProps {
                 board_render_state: BoardProps {
@@ -278,6 +285,7 @@ impl HanabiApp {
                     .collect_vec(),
                 game_log: vec![],
             },
+            legend_description,
             legend,
         )
         // VStack::new()
@@ -304,13 +312,18 @@ impl HanabiApp {
         //     )
     }
 
-    fn game_ui(&self, game_props: GameProps, legend: Vec<LegendItem>) -> Node<'static> {
+    fn game_ui(
+        &self,
+        game_props: GameProps,
+        legend_description: String,
+        legend: Vec<LegendItem>,
+    ) -> Node<'static> {
         use taffy::prelude::*;
 
         GridStack::new().children(
             LayoutStyle {
                 grid_template_columns: vec![fr(1.), length(40.)],
-                grid_template_rows: vec![fr(1.), length(3.)],
+                grid_template_rows: vec![fr(1.), length(4.)],
                 padding: LayoutRect {
                     top: length(1.),
                     left: length(4.),
@@ -374,24 +387,34 @@ impl HanabiApp {
 
                         ..layout
                     }),
-                HStack::new().children(
-                    LayoutStyle {
-                        size: Size {
-                            width: auto(),
-                            height: length(3.),
-                        },
+                VStack::new()
+                    .layout(LayoutStyle {
+                        align_items: Some(AlignItems::Center),
                         gap: Size {
                             width: length(1.),
-                            height: length(0.),
+                            height: length(1.),
                         },
-                        justify_content: Some(JustifyContent::Center),
+                        ..VStack::default_layout()
+                    })
+                    .child(Span::from(legend_description))
+                    .child(HStack::new().children(
+                        LayoutStyle {
+                            size: Size {
+                                width: auto(),
+                                height: length(3.),
+                            },
+                            gap: Size {
+                                width: length(1.),
+                                height: length(0.),
+                            },
+                            justify_content: Some(JustifyContent::Center),
 
-                        grid_row: line(2),
-                        grid_column: span(2),
-                        ..HStack::default_layout()
-                    },
-                    legend.into_iter().map(game_action_item_tree).collect_vec(),
-                ),
+                            grid_row: line(2),
+                            grid_column: span(2),
+                            ..HStack::default_layout()
+                        },
+                        legend.into_iter().map(game_action_item_tree).collect_vec(),
+                    )),
             ],
         )
     }
@@ -503,14 +526,31 @@ impl HanabiApp {
             );
         }
 
-        if game_state.turn != game_state.player_snapshot {
-            return ("Oopps, something is not right!".to_string(), vec![]);
+        if game_state.current_turn_player_index != game_state.this_client_player_index {
+            return (
+                format!(
+                    "{}'s turn",
+                    players[game_state.current_turn_player_index.0].name
+                ),
+                vec![],
+            );
+        }
+
+        fn readable_slot_index(SlotIndex(idx): SlotIndex) -> &'static str {
+            match idx {
+                0 => "First",
+                1 => "Second",
+                2 => "Third",
+                3 => "Fourth",
+                4 => "Fifth",
+                _ => "wtf?",
+            }
         }
 
         use KeyCode::*;
         match self.command.current_command {
             CommandBuilder::Empty => (
-                "It is your turn, what would you do?".to_string(),
+                "It's your turn, choose an action!? Your teammates are waiting...".to_string(),
                 [
                     Some(LegendItem {
                         desc: "Play Card".to_string(),
@@ -530,20 +570,15 @@ impl HanabiApp {
                             action: AppAction::GameAction(GameAction::StartHint),
                         }),
                     },
-                    Some(LegendItem {
-                        desc: "Undo".to_string(),
-                        key_code: Char('u'),
-                        action: AppAction::GameAction(GameAction::Undo),
-                    }),
                 ]
                 .into_iter()
                 .flatten()
                 .collect(),
             ),
             CommandBuilder::Hinting(HintState::ChoosingPlayer) => (
-                "Choouse a player index (left -> right)".to_string(),
+                "Choose a player index".to_string(),
                 (0..game_state.players.len())
-                    .filter(|&index| game_state.turn.0 != index)
+                    .filter(|&index| game_state.current_turn_player_index.0 != index)
                     .map(|index| LegendItem {
                         desc: format!("{}", players[index].name),
                         key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
@@ -560,7 +595,7 @@ impl HanabiApp {
             ),
 
             CommandBuilder::Hinting(HintState::ChoosingHint { .. }) => (
-                "Give a hint about Suit or Face".to_string(),
+                "Choose a suit or face hint".to_string(),
                 vec![
                     LegendItem {
                         desc: "One".to_string(),
@@ -623,17 +658,20 @@ impl HanabiApp {
             CommandBuilder::PlayingCard(CardState::ChoosingCard { card_type })
             | CommandBuilder::DiscardingCard(CardState::ChoosingCard { card_type }) => {
                 let (action, description) = match card_type {
-                    CardBuilderType::Play => ("Play", "Choose a card to Play"),
-                    CardBuilderType::Discard => ("Discard", "What card can go to the bin?"),
+                    CardBuilderType::Play => ("Play", "Choose a card to play"),
+                    CardBuilderType::Discard => ("Discard", "Choose a card to send to the bin"),
                 };
-                match game_state.players.get(game_state.turn.0) {
+                match game_state
+                    .players
+                    .get(game_state.current_turn_player_index.0)
+                {
                     Some(ClientPlayerView::Me { hand, .. }) => (
                         description.to_string(),
                         hand.iter()
                             .enumerate()
                             .filter(|(_, slot)| slot.is_some())
                             .map(|(index, _)| LegendItem {
-                                desc: format!("{} #{}", action, index + 1),
+                                desc: format!("{}", readable_slot_index(SlotIndex(index))),
                                 key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
                                 action: AppAction::GameAction(GameAction::SelectCard(SlotIndex(
                                     index,
@@ -652,45 +690,35 @@ impl HanabiApp {
 
             CommandBuilder::ConfirmingAction(action) => (
                 {
-                    fn readable_index(SlotIndex(idx): SlotIndex) -> &'static str {
-                        match idx {
-                            0 => "first",
-                            1 => "second",
-                            2 => "third",
-                            3 => "forth",
-                            4 => "fifth",
-                            _ => "wtf?",
-                        }
-                    }
-
                     match action {
                         PlayerAction::PlayCard(index) => {
-                            format!("Confirm playing {} card", readable_index(index))
+                            format!("Confirm: Play {} card", readable_slot_index(index))
                         }
                         PlayerAction::DiscardCard(index) => {
-                            format!("Confirm discarding {} card", readable_index(index))
+                            format!("Confirm: Discard {} card", readable_slot_index(index))
                         }
                         PlayerAction::GiveHint(PlayerIndex(player_index), hint_action) => {
                             format!(
-                                "Give hint to {} on {}",
-                                players[player_index].name,
+                                "Confirm: Give {} hint to {}",
                                 match hint_action {
-                                    HintAction::SameSuit(suit) => format!("{suit:?}"),
-                                    HintAction::SameFace(face) => format!("{face:?}"),
-                                }
+                                    HintAction::SameSuit(suit) =>
+                                        format!("{suit:?}").fg(colorize_suit(suit)).bold(),
+                                    HintAction::SameFace(face) => format!("{face:?}").bold(),
+                                },
+                                players[player_index].name,
                             )
                         }
                     }
                 },
                 Vec::from([
                     LegendItem {
-                        desc: "Yes".to_string(),
-                        key_code: Char('y'),
+                        desc: "Confirm".to_string(),
+                        key_code: KeyCode::Enter,
                         action: AppAction::GameAction(GameAction::Confirm(true)),
                     },
                     LegendItem {
-                        desc: "No".to_string(),
-                        key_code: Char('n'),
+                        desc: "Cancel".to_string(),
+                        key_code: KeyCode::Esc,
                         action: AppAction::GameAction(GameAction::Confirm(false)),
                     },
                 ]),
@@ -797,6 +825,12 @@ fn game_action_item_tree(item: LegendItem) -> Node<'static> {
             key_code: KeyCode::Esc,
             ..
         } => format!("{} [{}]", desc, "\u{f12b7} "),
+
+        LegendItem {
+            desc,
+            key_code: KeyCode::Enter,
+            ..
+        } => format!("{} [{}]", desc, "\u{f0311} "),
 
         _ => panic!("Unknown keycode"),
     };
@@ -966,21 +1000,23 @@ impl From<HanabiApp> for GameProps {
                     players: (0..players.len())
                         .into_iter()
                         .map(|player_index| {
-                            let player_state =
-                                match (game_state.turn, &app_state.command.current_command) {
-                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                        PlayerRenderState::CurrentTurn
-                                    }
-                                    (
-                                        _,
-                                        &CommandBuilder::Hinting(HintState::ChoosingHint {
-                                            player_index: command_player_index,
-                                        }),
-                                    ) if command_player_index as usize == player_index => {
-                                        PlayerRenderState::CurrentSelection
-                                    }
-                                    _ => PlayerRenderState::Default,
-                                };
+                            let player_state = match (
+                                game_state.current_turn_player_index,
+                                &app_state.command.current_command,
+                            ) {
+                                (PlayerIndex(turn), _) if turn as usize == player_index => {
+                                    PlayerRenderState::CurrentTurn
+                                }
+                                (
+                                    _,
+                                    &CommandBuilder::Hinting(HintState::ChoosingHint {
+                                        player_index: command_player_index,
+                                    }),
+                                ) if command_player_index as usize == player_index => {
+                                    PlayerRenderState::CurrentSelection
+                                }
+                                _ => PlayerRenderState::Default,
+                            };
 
                             match &game_state.players[player_index] {
                                 ClientPlayerView::Me { name, hand } => player_node_props(
@@ -1012,14 +1048,16 @@ impl From<HanabiApp> for GameProps {
                     players: (0..players.len())
                         .into_iter()
                         .map(|player_index| {
-                            let player_state =
-                                match (game_state.turn, &app_state.command.current_command) {
-                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                        PlayerRenderState::CurrentTurn
-                                    }
+                            let player_state = match (
+                                game_state.current_turn_player_index,
+                                &app_state.command.current_command,
+                            ) {
+                                (PlayerIndex(turn), _) if turn as usize == player_index => {
+                                    PlayerRenderState::CurrentTurn
+                                }
 
-                                    _ => PlayerRenderState::Default,
-                                };
+                                _ => PlayerRenderState::Default,
+                            };
 
                             player_node_props(
                                 players[player_index].name.clone(),
@@ -1080,7 +1118,10 @@ mod tests {
             height: 46,
         });
 
-        let tree_widget = root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
+        let tree_widget = root_tree_widget(
+            buf.area,
+            app.game_ui(app.clone().into(), "".to_string(), vec![]),
+        );
 
         tree_widget.render_ref(buf.area, &mut buf);
 
@@ -1139,8 +1180,10 @@ mod tests {
                 players,
                 game_state,
             } => {
-                let tree_widget =
-                    root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
+                let tree_widget = root_tree_widget(
+                    buf.area,
+                    app.game_ui(app.clone().into(), "".to_string(), vec![]),
+                );
                 tree_widget.render_ref(buf.area, &mut buf);
             }
             _ => todo!(),

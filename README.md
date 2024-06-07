@@ -30,6 +30,10 @@ TODO
 ## Dependencies
 
 - `cargo install just`
+- `cargo install trunk`
+- `cargo install shuttle`
+- Install "Docker Helper"
+  - 
 - probably way more, don't remember anymore. Please add more if you notice them.
 
 ## Local enviornment
