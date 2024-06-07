@@ -4,7 +4,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, ScrollDirection},
 };
 use ratatui::{style::Stylize, widgets::WidgetRef, Terminal};
-use std::{char::from_digit, collections::HashMap, error::Error, iter};
+use std::{char::from_digit, collections::HashMap, error::Error, fmt::format, iter};
 use taffy::{
     style_helpers::{length, percent},
     JustifyContent, Overflow, Point,
@@ -115,8 +115,8 @@ impl HanabiApp {
     {
         // while !self.exit {
 
-        let legend = self.legend_for_command_state(&self.client_state);
-        let mut ui = self.ui(legend);
+        let (legend_description, legend) = self.legend_for_command_state(&self.client_state);
+        let mut ui = self.ui(legend_description, legend);
 
         terminal.draw(|frame| {
             // let tree = root_tree_widget(frame.size(), ui);
@@ -188,7 +188,7 @@ impl HanabiApp {
                 // app.vertical_scroll_state = app.vertical_scroll_state.position(app.vertical_scroll);
             }
             key_code => {
-                let options = self.legend_for_command_state(&self.client_state);
+                let (_, options) = self.legend_for_command_state(&self.client_state);
                 let triggered_option = options.into_iter().find(|a| a.key_code == key_code);
 
                 match triggered_option {
@@ -233,13 +233,15 @@ impl HanabiApp {
         Ok(EventHandlerResult::Continue)
     }
 
-    fn ui(&mut self, legend: Vec<LegendItem>) -> Node<'static> {
+    fn ui(&mut self, legend_description: String, legend: Vec<LegendItem>) -> Node<'static> {
         match &self.client_state {
             HanabiClient::Connecting => self.connecting_ui(),
             HanabiClient::Loaded(HanabiGame::Lobby { players, .. }) => {
-                self.lobby_ui(players, legend)
+                self.lobby_ui(players, legend_description, legend)
             }
-            HanabiClient::Loaded(_) => self.game_ui(self.clone().into(), legend),
+            HanabiClient::Loaded(_) => {
+                self.game_ui(self.clone().into(), legend_description, legend)
+            }
         }
     }
 
@@ -260,7 +262,12 @@ impl HanabiApp {
             }))
     }
 
-    fn lobby_ui(&self, players: &Vec<OnlinePlayer>, legend: Vec<LegendItem>) -> Node<'static> {
+    fn lobby_ui(
+        &self,
+        players: &Vec<OnlinePlayer>,
+        legend_description: String,
+        legend: Vec<LegendItem>,
+    ) -> Node<'static> {
         self.game_ui(
             GameProps {
                 board_render_state: BoardProps {
@@ -278,6 +285,7 @@ impl HanabiApp {
                     .collect_vec(),
                 game_log: vec![],
             },
+            legend_description,
             legend,
         )
         // VStack::new()
@@ -304,13 +312,18 @@ impl HanabiApp {
         //     )
     }
 
-    fn game_ui(&self, game_props: GameProps, legend: Vec<LegendItem>) -> Node<'static> {
+    fn game_ui(
+        &self,
+        game_props: GameProps,
+        legend_description: String,
+        legend: Vec<LegendItem>,
+    ) -> Node<'static> {
         use taffy::prelude::*;
 
         GridStack::new().children(
             LayoutStyle {
                 grid_template_columns: vec![fr(1.), length(40.)],
-                grid_template_rows: vec![fr(1.), length(3.)],
+                grid_template_rows: vec![fr(1.), length(4.)],
                 padding: LayoutRect {
                     top: length(1.),
                     left: length(4.),
@@ -374,24 +387,34 @@ impl HanabiApp {
 
                         ..layout
                     }),
-                HStack::new().children(
-                    LayoutStyle {
-                        size: Size {
-                            width: auto(),
-                            height: length(3.),
-                        },
+                VStack::new()
+                    .layout(LayoutStyle {
+                        align_items: Some(AlignItems::Center),
                         gap: Size {
                             width: length(1.),
-                            height: length(0.),
+                            height: length(1.),
                         },
-                        justify_content: Some(JustifyContent::Center),
+                        ..VStack::default_layout()
+                    })
+                    .child(Span::from(legend_description))
+                    .child(HStack::new().children(
+                        LayoutStyle {
+                            size: Size {
+                                width: auto(),
+                                height: length(3.),
+                            },
+                            gap: Size {
+                                width: length(1.),
+                                height: length(0.),
+                            },
+                            justify_content: Some(JustifyContent::Center),
 
-                        grid_row: line(2),
-                        grid_column: span(2),
-                        ..HStack::default_layout()
-                    },
-                    legend.into_iter().map(game_action_item_tree).collect_vec(),
-                ),
+                            grid_row: line(2),
+                            grid_column: span(2),
+                            ..HStack::default_layout()
+                        },
+                        legend.into_iter().map(game_action_item_tree).collect_vec(),
+                    )),
             ],
         )
     }
@@ -436,19 +459,21 @@ impl HanabiApp {
             )
     }
 
-    fn legend_for_command_state(&self, game_state: &HanabiClient) -> Vec<LegendItem> {
+    fn legend_for_command_state(&self, game_state: &HanabiClient) -> (String, Vec<LegendItem>) {
         use KeyCode::*;
         match game_state {
-            HanabiClient::Connecting { .. } => {
-                return vec![LegendItem {
+            HanabiClient::Connecting { .. } => (
+                "Connecting...".to_string(),
+                vec![LegendItem {
                     desc: format!("Quit"),
                     key_code: KeyCode::Esc,
                     action: AppAction::Quit,
-                }];
-            }
+                }],
+            ),
             HanabiClient::Loaded(game_state) => match game_state {
-                HanabiGame::Lobby { .. } => {
-                    return vec![
+                HanabiGame::Lobby { .. } => (
+                    "When you friends are done joining press 's' to start the game".to_string(),
+                    vec![
                         LegendItem {
                             desc: format!("Leave"),
                             key_code: KeyCode::Esc,
@@ -459,21 +484,22 @@ impl HanabiApp {
                             key_code: Char('s'),
                             action: AppAction::Start,
                         },
-                    ];
-                }
+                    ],
+                ),
                 HanabiGame::Started {
                     game_state,
                     players,
                     ..
                 } => self.legend_for_command_state_game(game_state, players),
 
-                HanabiGame::Ended { .. } => {
-                    return vec![LegendItem {
+                HanabiGame::Ended { .. } => (
+                    "Even good things come to an end (unfortunately)".to_string(),
+                    vec![LegendItem {
                         desc: format!("Quit"),
                         key_code: KeyCode::Esc,
                         action: AppAction::Quit,
-                    }];
-                }
+                    }],
+                ),
             },
         }
     }
@@ -482,148 +508,221 @@ impl HanabiApp {
         &self,
         game_state: &GameStateSnapshot,
         players: &Vec<OnlinePlayer>,
-    ) -> Vec<LegendItem> {
-        if let Some(_) = &game_state.outcome {
-            return vec![LegendItem {
-                desc: format!("Quit"),
-                key_code: KeyCode::Esc,
-                action: AppAction::Quit,
-            }];
+    ) -> (String, Vec<LegendItem>) {
+        if let Some(outcome) = &game_state.outcome {
+            return (
+                format!(
+                    "The game has ended, you {}",
+                    match outcome {
+                        GameOutcome::Win => "won!".to_string(),
+                        GameOutcome::Fail { score } => format!("failed with the {score}"),
+                    }
+                ),
+                vec![LegendItem {
+                    desc: format!("Quit"),
+                    key_code: KeyCode::Esc,
+                    action: AppAction::Quit,
+                }],
+            );
         }
 
-        if game_state.turn != game_state.player_snapshot {
-            return vec![];
+        if game_state.current_turn_player_index != game_state.this_client_player_index {
+            return (
+                format!(
+                    "{}'s turn",
+                    players[game_state.current_turn_player_index.0].name
+                ),
+                vec![],
+            );
+        }
+
+        fn readable_slot_index(SlotIndex(idx): SlotIndex) -> &'static str {
+            match idx {
+                0 => "First",
+                1 => "Second",
+                2 => "Third",
+                3 => "Fourth",
+                4 => "Fifth",
+                _ => "wtf?",
+            }
         }
 
         use KeyCode::*;
         match self.command.current_command {
-            CommandBuilder::Empty => [
-                Some(LegendItem {
-                    desc: "Play Card".to_string(),
-                    key_code: Char('p'),
-                    action: AppAction::GameAction(GameAction::StartPlay),
-                }),
-                Some(LegendItem {
-                    desc: "Discard Card".to_string(),
-                    key_code: Char('d'),
-                    action: AppAction::GameAction(GameAction::StartDiscard),
-                }),
-                match game_state.remaining_hint_count {
-                    0 => None,
-                    _ => Some(LegendItem {
-                        desc: "Give Hint".to_string(),
-                        key_code: Char('h'),
-                        action: AppAction::GameAction(GameAction::StartHint),
+            CommandBuilder::Empty => (
+                "It's your turn, choose an action!? Your teammates are waiting...".to_string(),
+                [
+                    Some(LegendItem {
+                        desc: "Play Card".to_string(),
+                        key_code: Char('p'),
+                        action: AppAction::GameAction(GameAction::StartPlay),
                     }),
-                },
-                Some(LegendItem {
-                    desc: "Undo".to_string(),
-                    key_code: Char('u'),
-                    action: AppAction::GameAction(GameAction::Undo),
-                }),
-            ]
-            .into_iter()
-            .flatten()
-            .collect(),
-            CommandBuilder::Hint(HintState::ChoosingPlayer) => (0..game_state.players.len())
-                .filter(|&index| game_state.turn.0 != index)
-                .map(|index| LegendItem {
-                    desc: format!("{}", players[index].name),
-                    key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
-                    action: AppAction::GameAction(GameAction::SelectPlayer {
-                        player_index: index as u8,
+                    Some(LegendItem {
+                        desc: "Discard Card".to_string(),
+                        key_code: Char('d'),
+                        action: AppAction::GameAction(GameAction::StartDiscard),
                     }),
-                })
-                .chain(iter::once(LegendItem {
-                    desc: "Back".to_string(),
-                    key_code: Backspace,
-                    action: AppAction::GameAction(GameAction::Undo),
-                }))
-                .collect_vec(),
+                    match game_state.remaining_hint_count {
+                        0 => None,
+                        _ => Some(LegendItem {
+                            desc: "Give Hint".to_string(),
+                            key_code: Char('h'),
+                            action: AppAction::GameAction(GameAction::StartHint),
+                        }),
+                    },
+                ]
+                .into_iter()
+                .flatten()
+                .collect(),
+            ),
+            CommandBuilder::Hinting(HintState::ChoosingPlayer) => (
+                "Choose a player index".to_string(),
+                (0..game_state.players.len())
+                    .filter(|&index| game_state.current_turn_player_index.0 != index)
+                    .map(|index| LegendItem {
+                        desc: format!("{}", players[index].name),
+                        key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
+                        action: AppAction::GameAction(GameAction::SelectPlayer {
+                            player_index: index as u8,
+                        }),
+                    })
+                    .chain(iter::once(LegendItem {
+                        desc: "Back".to_string(),
+                        key_code: Backspace,
+                        action: AppAction::GameAction(GameAction::Undo),
+                    }))
+                    .collect_vec(),
+            ),
 
-            CommandBuilder::Hint(HintState::ChoosingHint { .. }) => vec![
-                LegendItem {
-                    desc: "One".to_string(),
-                    key_code: Char('1'),
-                    action: AppAction::GameAction(GameAction::SelectFace(CardFace::One)),
-                },
-                LegendItem {
-                    desc: "Two".to_string(),
-                    key_code: Char('2'),
-                    action: AppAction::GameAction(GameAction::SelectFace(CardFace::Two)),
-                },
-                LegendItem {
-                    desc: "Three".to_string(),
-                    key_code: Char('3'),
-                    action: AppAction::GameAction(GameAction::SelectFace(CardFace::Three)),
-                },
-                LegendItem {
-                    desc: "Four".to_string(),
-                    key_code: Char('4'),
-                    action: AppAction::GameAction(GameAction::SelectFace(CardFace::Four)),
-                },
-                LegendItem {
-                    desc: "Five".to_string(),
-                    key_code: Char('5'),
-                    action: AppAction::GameAction(GameAction::SelectFace(CardFace::Five)),
-                },
-                LegendItem {
-                    desc: "Blue".to_string(),
-                    key_code: Char('b'),
-                    action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Blue)),
-                },
-                LegendItem {
-                    desc: "Green".to_string(),
-                    key_code: Char('g'),
-                    action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Green)),
-                },
-                LegendItem {
-                    desc: "Red".to_string(),
-                    key_code: Char('r'),
-                    action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Red)),
-                },
-                LegendItem {
-                    desc: "White".to_string(),
-                    key_code: Char('w'),
-                    action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::White)),
-                },
-                LegendItem {
-                    desc: "Yellow".to_string(),
-                    key_code: Char('y'),
-                    action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Yellow)),
-                },
-                LegendItem {
-                    desc: "Back".to_string(),
-                    key_code: Backspace,
-                    action: AppAction::GameAction(GameAction::Undo),
-                },
-            ],
+            CommandBuilder::Hinting(HintState::ChoosingHint { .. }) => (
+                "Choose a suit or face hint".to_string(),
+                vec![
+                    LegendItem {
+                        desc: "One".to_string(),
+                        key_code: Char('1'),
+                        action: AppAction::GameAction(GameAction::SelectFace(CardFace::One)),
+                    },
+                    LegendItem {
+                        desc: "Two".to_string(),
+                        key_code: Char('2'),
+                        action: AppAction::GameAction(GameAction::SelectFace(CardFace::Two)),
+                    },
+                    LegendItem {
+                        desc: "Three".to_string(),
+                        key_code: Char('3'),
+                        action: AppAction::GameAction(GameAction::SelectFace(CardFace::Three)),
+                    },
+                    LegendItem {
+                        desc: "Four".to_string(),
+                        key_code: Char('4'),
+                        action: AppAction::GameAction(GameAction::SelectFace(CardFace::Four)),
+                    },
+                    LegendItem {
+                        desc: "Five".to_string(),
+                        key_code: Char('5'),
+                        action: AppAction::GameAction(GameAction::SelectFace(CardFace::Five)),
+                    },
+                    LegendItem {
+                        desc: "Blue".to_string(),
+                        key_code: Char('b'),
+                        action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Blue)),
+                    },
+                    LegendItem {
+                        desc: "Green".to_string(),
+                        key_code: Char('g'),
+                        action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Green)),
+                    },
+                    LegendItem {
+                        desc: "Red".to_string(),
+                        key_code: Char('r'),
+                        action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Red)),
+                    },
+                    LegendItem {
+                        desc: "White".to_string(),
+                        key_code: Char('w'),
+                        action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::White)),
+                    },
+                    LegendItem {
+                        desc: "Yellow".to_string(),
+                        key_code: Char('y'),
+                        action: AppAction::GameAction(GameAction::SelectSuit(CardSuit::Yellow)),
+                    },
+                    LegendItem {
+                        desc: "Back".to_string(),
+                        key_code: Backspace,
+                        action: AppAction::GameAction(GameAction::Undo),
+                    },
+                ],
+            ),
 
-            CommandBuilder::Play(CardState::ChoosingCard { card_type })
-            | CommandBuilder::Discard(CardState::ChoosingCard { card_type }) => {
-                let action = match card_type {
-                    CardBuilderType::Play => "Play",
-                    CardBuilderType::Discard => "Discard",
+            CommandBuilder::PlayingCard(CardState::ChoosingCard { card_type })
+            | CommandBuilder::DiscardingCard(CardState::ChoosingCard { card_type }) => {
+                let (action, description) = match card_type {
+                    CardBuilderType::Play => ("Play", "Choose a card to play"),
+                    CardBuilderType::Discard => ("Discard", "Choose a card to send to the bin"),
                 };
-                match game_state.players.get(game_state.turn.0) {
-                    Some(ClientPlayerView::Me { hand, .. }) => hand
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, slot)| slot.is_some())
-                        .map(|(index, _)| LegendItem {
-                            desc: format!("{} #{}", action, index + 1),
-                            key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
-                            action: AppAction::GameAction(GameAction::SelectCard(SlotIndex(index))),
-                        })
-                        .chain(iter::once(LegendItem {
-                            desc: "Back".to_string(),
-                            key_code: Backspace,
-                            action: AppAction::GameAction(GameAction::Undo),
-                        }))
-                        .collect(),
+                match game_state
+                    .players
+                    .get(game_state.current_turn_player_index.0)
+                {
+                    Some(ClientPlayerView::Me { hand, .. }) => (
+                        description.to_string(),
+                        hand.iter()
+                            .enumerate()
+                            .filter(|(_, slot)| slot.is_some())
+                            .map(|(index, _)| LegendItem {
+                                desc: format!("{}", readable_slot_index(SlotIndex(index))),
+                                key_code: Char(from_digit(index as u32 + 1, 10).unwrap()),
+                                action: AppAction::GameAction(GameAction::SelectCard(SlotIndex(
+                                    index,
+                                ))),
+                            })
+                            .chain(iter::once(LegendItem {
+                                desc: "Back".to_string(),
+                                key_code: Backspace,
+                                action: AppAction::GameAction(GameAction::Undo),
+                            }))
+                            .collect(),
+                    ),
                     _ => panic!("Shouldn't be able to play as another player"),
                 }
             }
+
+            CommandBuilder::ConfirmingAction(action) => (
+                {
+                    match action {
+                        PlayerAction::PlayCard(index) => {
+                            format!("Confirm: Play {} card", readable_slot_index(index))
+                        }
+                        PlayerAction::DiscardCard(index) => {
+                            format!("Confirm: Discard {} card", readable_slot_index(index))
+                        }
+                        PlayerAction::GiveHint(PlayerIndex(player_index), hint_action) => {
+                            format!(
+                                "Confirm: Give {} hint to {}",
+                                match hint_action {
+                                    HintAction::SameSuit(suit) =>
+                                        format!("{suit:?}").fg(colorize_suit(suit)).bold(),
+                                    HintAction::SameFace(face) => format!("{face:?}").bold(),
+                                },
+                                players[player_index].name,
+                            )
+                        }
+                    }
+                },
+                Vec::from([
+                    LegendItem {
+                        desc: "Confirm".to_string(),
+                        key_code: KeyCode::Enter,
+                        action: AppAction::GameAction(GameAction::Confirm(true)),
+                    },
+                    LegendItem {
+                        desc: "Cancel".to_string(),
+                        key_code: KeyCode::Esc,
+                        action: AppAction::GameAction(GameAction::Confirm(false)),
+                    },
+                ]),
+            ),
         }
     }
 }
@@ -726,6 +825,12 @@ fn game_action_item_tree(item: LegendItem) -> Node<'static> {
             key_code: KeyCode::Esc,
             ..
         } => format!("{} [{}]", desc, "\u{f12b7} "),
+
+        LegendItem {
+            desc,
+            key_code: KeyCode::Enter,
+            ..
+        } => format!("{} [{}]", desc, "\u{f0311} "),
 
         _ => panic!("Unknown keycode"),
     };
@@ -895,21 +1000,23 @@ impl From<HanabiApp> for GameProps {
                     players: (0..players.len())
                         .into_iter()
                         .map(|player_index| {
-                            let player_state =
-                                match (game_state.turn, &app_state.command.current_command) {
-                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                        PlayerRenderState::CurrentTurn
-                                    }
-                                    (
-                                        _,
-                                        &CommandBuilder::Hint(HintState::ChoosingHint {
-                                            player_index: command_player_index,
-                                        }),
-                                    ) if command_player_index as usize == player_index => {
-                                        PlayerRenderState::CurrentSelection
-                                    }
-                                    _ => PlayerRenderState::Default,
-                                };
+                            let player_state = match (
+                                game_state.current_turn_player_index,
+                                &app_state.command.current_command,
+                            ) {
+                                (PlayerIndex(turn), _) if turn as usize == player_index => {
+                                    PlayerRenderState::CurrentTurn
+                                }
+                                (
+                                    _,
+                                    &CommandBuilder::Hinting(HintState::ChoosingHint {
+                                        player_index: command_player_index,
+                                    }),
+                                ) if command_player_index as usize == player_index => {
+                                    PlayerRenderState::CurrentSelection
+                                }
+                                _ => PlayerRenderState::Default,
+                            };
 
                             match &game_state.players[player_index] {
                                 ClientPlayerView::Me { name, hand } => player_node_props(
@@ -941,14 +1048,16 @@ impl From<HanabiApp> for GameProps {
                     players: (0..players.len())
                         .into_iter()
                         .map(|player_index| {
-                            let player_state =
-                                match (game_state.turn, &app_state.command.current_command) {
-                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                        PlayerRenderState::CurrentTurn
-                                    }
+                            let player_state = match (
+                                game_state.current_turn_player_index,
+                                &app_state.command.current_command,
+                            ) {
+                                (PlayerIndex(turn), _) if turn as usize == player_index => {
+                                    PlayerRenderState::CurrentTurn
+                                }
 
-                                    _ => PlayerRenderState::Default,
-                                };
+                                _ => PlayerRenderState::Default,
+                            };
 
                             player_node_props(
                                 players[player_index].name.clone(),
@@ -1009,7 +1118,10 @@ mod tests {
             height: 46,
         });
 
-        let tree_widget = root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
+        let tree_widget = root_tree_widget(
+            buf.area,
+            app.game_ui(app.clone().into(), "".to_string(), vec![]),
+        );
 
         tree_widget.render_ref(buf.area, &mut buf);
 
@@ -1068,8 +1180,10 @@ mod tests {
                 players,
                 game_state,
             } => {
-                let tree_widget =
-                    root_tree_widget(buf.area, app.game_ui(app.clone().into(), vec![]));
+                let tree_widget = root_tree_widget(
+                    buf.area,
+                    app.game_ui(app.clone().into(), "".to_string(), vec![]),
+                );
                 tree_widget.render_ref(buf.area, &mut buf);
             }
             _ => todo!(),

@@ -5,7 +5,7 @@ use shared::{
 
 pub fn generate_minimal_test_game_state() -> GameStateSnapshot {
     GameStateSnapshot {
-        player_snapshot: PlayerIndex(0),
+        this_client_player_index: PlayerIndex(0),
         draw_pile_count: 0,
         played_cards: vec![],
         discard_pile: vec![],
@@ -21,7 +21,7 @@ pub fn generate_minimal_test_game_state() -> GameStateSnapshot {
         ],
         remaining_bomb_count: 1,
         remaining_hint_count: 1,
-        turn: PlayerIndex(0),
+        current_turn_player_index: PlayerIndex(0),
         num_rounds: 0,
         last_turn: None,
         outcome: None,
@@ -39,7 +39,7 @@ pub fn generate_minimal_test_game_state() -> GameStateSnapshot {
 
 pub fn generate_test_game_state() -> GameStateSnapshot {
     GameStateSnapshot {
-        player_snapshot: PlayerIndex(0),
+        this_client_player_index: PlayerIndex(0),
         draw_pile_count: 20,
         played_cards: vec![
             Card {
@@ -67,7 +67,7 @@ pub fn generate_test_game_state() -> GameStateSnapshot {
         players: todo!(),
         remaining_bomb_count: todo!(),
         remaining_hint_count: todo!(),
-        turn: todo!(),
+        current_turn_player_index: todo!(),
         num_rounds: todo!(),
         last_turn: todo!(),
         outcome: todo!(),
@@ -199,7 +199,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
         ]
         .to_vec(),
         game_state: GameStateSnapshot {
-            player_snapshot: PlayerIndex(0),
+            this_client_player_index: PlayerIndex(0),
             draw_pile_count: 35,
             played_cards: [
                 Card {
@@ -321,7 +321,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
             .to_vec(),
             remaining_bomb_count: 3,
             remaining_hint_count: 1,
-            turn: PlayerIndex(1),
+            current_turn_player_index: PlayerIndex(1),
             num_rounds: 13,
             last_turn: None,
             outcome: None,
@@ -475,7 +475,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
         ]
         .to_vec(),
         game_state: GameStateSnapshot {
-            player_snapshot: PlayerIndex(0),
+            this_client_player_index: PlayerIndex(0),
             draw_pile_count: 35,
             played_cards: [
                 Card {
@@ -597,7 +597,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
             .to_vec(),
             remaining_bomb_count: 3,
             remaining_hint_count: 1,
-            turn: PlayerIndex(1),
+            current_turn_player_index: PlayerIndex(1),
             num_rounds: 13,
             last_turn: None,
             outcome: None,

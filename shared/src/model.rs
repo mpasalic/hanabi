@@ -21,7 +21,7 @@ pub enum CardSuit {
     White,
     Blue,
 }
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PlayerIndex(pub usize);
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -74,14 +74,14 @@ pub enum GameEvent {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameStateSnapshot {
-    pub player_snapshot: PlayerIndex,
+    pub this_client_player_index: PlayerIndex,
     pub draw_pile_count: u8, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
     pub discard_pile: Vec<Card>,
     pub players: Vec<ClientPlayerView>,
     pub remaining_bomb_count: u8,
     pub remaining_hint_count: u8,
-    pub turn: PlayerIndex,
+    pub current_turn_player_index: PlayerIndex,
     pub num_rounds: u8,        // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
