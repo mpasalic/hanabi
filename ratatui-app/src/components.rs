@@ -497,7 +497,7 @@ pub fn board_stats_node_tree(board_props: &BoardProps) -> Node<'static> {
     let data = [
         (
             "hints:".to_string(),
-            "\u{f444} ".repeat(board_props.hints_remaining as usize),
+            "\u{f017} ".repeat(board_props.hints_remaining as usize),
         ),
         (
             "bombs:".to_string(),

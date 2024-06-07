@@ -563,7 +563,7 @@ impl eframe::App for HelloApp {
                     Ok(message) => match message {
                         ServerToClientMessage::CreatedGame { session_id } => {}
                         ServerToClientMessage::UpdatedGameState(game_state) => {
-                            console_log!("Got Updated Game State... {:?}", game_state);
+                            console_log!("Got Updated Game State... {:#?}", game_state);
 
                             let new_state = HanabiClient::Loaded(game_state);
                             hanabi_app.update(new_state);
