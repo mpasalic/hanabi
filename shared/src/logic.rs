@@ -101,7 +101,6 @@ impl GameState {
                                 PlaceOnBoard(slot.card),
                                 DrawCard(player_index, SlotIndex(index)),
                                 IncHint,
-                                NextTurn(next_turn),
                             ]
                         }
                         PlayedCardResult::Rejected => {
@@ -110,7 +109,6 @@ impl GameState {
                                 AddToDiscrard(slot.card),
                                 DrawCard(player_index, SlotIndex(index)),
                                 BurnFuse,
-                                NextTurn(next_turn),
                             ]
                         }
                     },

@@ -552,7 +552,13 @@ impl HanabiApp {
         use KeyCode::*;
         match self.command.current_command {
             CommandBuilder::Empty => (
-                "It's your turn, choose an action!? Your teammates are waiting...".to_string(),
+                format!(
+                    "{}, it's your turn, choose an action! Your teammates are waiting...",
+                    players[game_state.this_client_player_index.0]
+                        .name
+                        .clone()
+                        .fg(SELECTION_COLOR),
+                ),
                 [
                     Some(LegendItem {
                         desc: "Play Card".to_string(),
@@ -743,20 +749,11 @@ fn generate_game_log(
     use shared::model::GameEffect as Eff;
     use shared::model::GameEvent as Ev;
 
-    let player_names = players
-        .iter()
-        .map(|p| {
-            if p.name.len() > 8 {
-                format!("{}...", &p.name[0..8].to_string())
-            } else {
-                p.name.clone()
-            }
-        })
-        .collect_vec();
-    let self_player = game_state.current_turn_player_index.0;
+    let self_player = game_state.this_client_player_index.0;
 
-    let player_name = move |player_index: usize| {
-        Span::from(player_names[player_index].clone())
+    let player_name_span = |player_index: usize| {
+        let name = &players[player_index].name;
+        Span::from(name[..8.min(name.len())].to_string())
             .style(default_style().fg(if player_index == self_player {
                 SELECTION_COLOR
             } else {
@@ -890,63 +887,58 @@ fn generate_game_log(
         Span::raw(format!("{}. ", i + 1))
     }
 
-    let game_log_iter =
-        game_state
-            .log
-            .iter()
-            .cloned()
+    let game_log_iter = game_state
+        .log
+        .iter()
+        .enumerate()
+        .map(|(turn_index, game_log)| match game_log {
+            GameEvent::PlayerAction {
+                player_index: PlayerIndex(player_index),
+                action: PlayerAction::PlayCard(SlotIndex(index)),
+                effects,
+            } => [
+                count_span(turn_index),
+                player_name_span(*player_index),
+                Span::raw(" played "),
+                card(card_played(&effects)),
+                result_span(&effects),
+            ]
+            .to_vec(),
+            GameEvent::PlayerAction {
+                player_index: PlayerIndex(player_index),
+                action: PlayerAction::DiscardCard(SlotIndex(index)),
+                effects,
+            } => [
+                count_span(turn_index),
+                player_name_span(*player_index),
+                Span::raw(" discarded "),
+                card(card_played(&effects)),
+                result_span(&effects),
+            ]
+            .to_vec(),
+            GameEvent::PlayerAction {
+                player_index: PlayerIndex(player_index),
+                action: PlayerAction::GiveHint(PlayerIndex(hinted_index), hint),
+                effects,
+            } => [
+                count_span(turn_index),
+                player_name_span(*player_index),
+                Span::raw(" hinted "),
+                player_name_span(*hinted_index),
+                Span::raw(" "),
+            ]
             .into_iter()
-            .enumerate()
-            .map(|(turn_index, game_log)| match game_log {
-                GameEvent::PlayerAction {
-                    player_index: PlayerIndex(player_index),
-                    action: PlayerAction::PlayCard(SlotIndex(index)),
-                    effects,
-                } => [
-                    count_span(turn_index),
-                    player_name(player_index),
-                    Span::raw(" played "),
-                    card(card_played(&effects)),
-                    result_span(&effects),
-                ]
-                .to_vec(),
-                GameEvent::PlayerAction {
-                    player_index: PlayerIndex(player_index),
-                    action: PlayerAction::DiscardCard(SlotIndex(index)),
-                    effects,
-                } => [
-                    count_span(turn_index),
-                    player_name(player_index),
-                    Span::raw(" discarded "),
-                    card(card_played(&effects)),
-                    result_span(&effects),
-                ]
-                .to_vec(),
-                GameEvent::PlayerAction {
-                    player_index: PlayerIndex(player_index),
-                    action: PlayerAction::GiveHint(PlayerIndex(hinted_index), hint),
-                    effects,
-                } => [
-                    count_span(turn_index),
-                    player_name(player_index),
-                    Span::raw(" hinted "),
-                    player_name(hinted_index),
-                    Span::raw(" "),
-                ]
-                .into_iter()
-                .chain(hint_spans(hint, &effects))
-                .collect_vec(),
-                Ev::GameOver(outcome) => [
-                    Span::raw("Game Over: "),
-                    match outcome {
-                        GameOutcome::Win => Span::raw("Victory!"),
-                        GameOutcome::Fail { score } => {
-                            Span::raw(format!("Defeat (score = {})", score))
-                        }
-                    },
-                ]
-                .to_vec(),
-            });
+            .chain(hint_spans(*hint, &effects))
+            .collect_vec(),
+            Ev::GameOver(outcome) => [
+                Span::raw("Game Over: "),
+                match outcome {
+                    GameOutcome::Win => Span::raw("Victory!"),
+                    GameOutcome::Fail { score } => Span::raw(format!("Defeat (score = {})", score)),
+                },
+            ]
+            .to_vec(),
+        });
 
     game_log_iter.map(|spans| Line::from(spans)).collect_vec()
 
