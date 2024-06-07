@@ -109,14 +109,16 @@ pub enum GameAction {
     SelectSuit(CardSuit),
     SelectFace(CardFace),
     SelectCard(SlotIndex),
+    Confirm(bool),
 }
 
 #[derive(Debug, Clone)]
 pub enum CommandBuilder {
     Empty,
-    Hint(HintState),
-    Play(CardState),
-    Discard(CardState),
+    Hinting(HintState),
+    PlayingCard(CardState),
+    DiscardingCard(CardState),
+    ConfirmingAction(PlayerAction),
 }
 
 #[derive(Debug, Clone)]
@@ -131,70 +133,64 @@ pub fn process_app_action(
     use CommandBuilder as C;
     use GameAction as A;
     let builder = match (state.current_command, action) {
-        (C::Empty, A::StartHint) => C::Hint(HintState::ChoosingPlayer),
-        (C::Empty, A::StartPlay) => C::Play(CardState::ChoosingCard {
+        (C::Empty, A::StartHint) => C::Hinting(HintState::ChoosingPlayer),
+        (C::Empty, A::StartPlay) => C::PlayingCard(CardState::ChoosingCard {
             card_type: CardBuilderType::Play,
         }),
-        (C::Empty, A::StartDiscard) => C::Discard(CardState::ChoosingCard {
+        (C::Empty, A::StartDiscard) => C::DiscardingCard(CardState::ChoosingCard {
             card_type: CardBuilderType::Discard,
         }),
 
-        (C::Play(CardState::ChoosingCard { .. }), A::SelectCard(slot_index)) => {
+        (C::PlayingCard(CardState::ChoosingCard { .. }), A::SelectCard(slot_index)) => {
+            C::ConfirmingAction(PlayerAction::PlayCard(slot_index))
+        }
+
+        (C::DiscardingCard(CardState::ChoosingCard { .. }), A::SelectCard(slot_index)) => {
+            C::ConfirmingAction(PlayerAction::DiscardCard(slot_index))
+        }
+
+        (C::Hinting(HintState::ChoosingPlayer), A::SelectPlayer { player_index }) => {
+            C::Hinting(HintState::ChoosingHint { player_index })
+        }
+
+        (C::Hinting(HintState::ChoosingHint { player_index }), A::SelectSuit(suit)) => {
+            C::ConfirmingAction(PlayerAction::GiveHint(
+                PlayerIndex(player_index as usize),
+                HintAction::SameSuit(suit),
+            ))
+        }
+
+        (C::Hinting(HintState::ChoosingHint { player_index }), A::SelectFace(face)) => {
+            C::ConfirmingAction(PlayerAction::GiveHint(
+                PlayerIndex(player_index as usize),
+                HintAction::SameFace(face),
+            ))
+        }
+
+        // ----- Confirming the action -----
+        (C::ConfirmingAction(_), A::Confirm(false)) => C::Empty,
+
+        (C::ConfirmingAction(action), A::Confirm(true)) => {
             return (
                 CommandState {
                     current_command: C::Empty,
                 },
-                Some(PlayerAction::PlayCard(slot_index)),
-            )
-        }
-
-        (C::Discard(CardState::ChoosingCard { .. }), A::SelectCard(slot_index)) => {
-            return (
-                CommandState {
-                    current_command: C::Empty,
-                },
-                Some(PlayerAction::DiscardCard(slot_index)),
-            )
-        }
-
-        (C::Hint(HintState::ChoosingPlayer), A::SelectPlayer { player_index }) => {
-            C::Hint(HintState::ChoosingHint { player_index })
-        }
-
-        // TODO produce a command
-        (C::Hint(HintState::ChoosingHint { player_index }), A::SelectSuit(suit)) => {
-            return (
-                CommandState {
-                    current_command: C::Empty,
-                },
-                Some(PlayerAction::GiveHint(
-                    PlayerIndex(player_index as usize),
-                    HintAction::SameSuit(suit),
-                )),
-            )
-        }
-
-        // TODO produce a command
-        (C::Hint(HintState::ChoosingHint { player_index }), A::SelectFace(face)) => {
-            return (
-                CommandState {
-                    current_command: C::Empty,
-                },
-                Some(PlayerAction::GiveHint(
-                    PlayerIndex(player_index as usize),
-                    HintAction::SameFace(face),
-                )),
+                Some(action),
             )
         }
 
         // ----- Undo -----
-        (C::Hint(HintState::ChoosingPlayer), A::Undo) => C::Empty,
+        (
+            C::Hinting(HintState::ChoosingPlayer)
+            | C::PlayingCard(CardState::ChoosingCard { .. })
+            | C::DiscardingCard(CardState::ChoosingCard { .. })
+            | C::ConfirmingAction(_),
+            A::Undo,
+        ) => C::Empty,
 
-        (C::Hint(HintState::ChoosingHint { .. }), A::Undo) => C::Hint(HintState::ChoosingPlayer),
-
-        (C::Play(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
-
-        (C::Discard(CardState::ChoosingCard { .. }), A::Undo) => C::Empty,
+        (C::Hinting(HintState::ChoosingHint { .. }), A::Undo) => {
+            C::Hinting(HintState::ChoosingPlayer)
+        }
 
         // ------ other wise do nothing -------
         (builder, _) => builder,
@@ -266,7 +262,7 @@ impl GameLog {
         let game_state = self.current_game_state();
         GameStateSnapshot {
             log: self.history.clone(),
-            player_snapshot: player,
+            this_client_player_index: player,
             draw_pile_count: game_state.draw_pile.len() as u8,
             played_cards: game_state.played_cards.clone(),
             discard_pile: game_state.discard_pile.clone(),
@@ -295,7 +291,7 @@ impl GameLog {
                 .collect(),
             remaining_bomb_count: game_state.remaining_bomb_count,
             remaining_hint_count: game_state.remaining_hint_count,
-            turn: game_state.current_player_index(),
+            current_turn_player_index: game_state.current_player_index(),
             num_rounds: game_state.turn,
             last_turn: game_state.last_turn,
             outcome: game_state.outcome,
