@@ -67,8 +67,11 @@ pub struct GameState {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GameEvent {
-    PlayerAction(PlayerIndex, PlayerAction),
-    GameEffect(GameEffect),
+    PlayerAction {
+        player_index: PlayerIndex,
+        action: PlayerAction,
+        effects: Vec<GameEffect>,
+    },
     GameOver(GameOutcome),
 }
 
@@ -139,7 +142,7 @@ pub enum PlayedCardResult {
     Rejected,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum GameEffect {
     DrawCard(PlayerIndex, SlotIndex),
     RemoveCard(PlayerIndex, SlotIndex),
@@ -150,6 +153,7 @@ pub enum GameEffect {
     IncHint,
     BurnFuse,
     NextTurn(PlayerIndex),
+    MarkLastTurn(u8),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]

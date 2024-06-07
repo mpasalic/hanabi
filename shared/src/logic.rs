@@ -55,6 +55,29 @@ impl GameState {
             .ok_or_else(|| "Invalid player index".to_string())?;
         let next_turn = PlayerIndex((self.turn as usize + 1) % self.players.len());
 
+        fn draw_card_effect(
+            game_state: &GameState,
+            player_index: PlayerIndex,
+            slot_index: SlotIndex,
+        ) -> Vec<GameEffect> {
+            match game_state {
+                GameState { draw_pile, .. } if draw_pile.len() > 1 => {
+                    vec![GameEffect::DrawCard(player_index, slot_index)]
+                }
+
+                GameState {
+                    draw_pile, turn, ..
+                } if draw_pile.len() == 1 => {
+                    vec![
+                        GameEffect::DrawCard(player_index, slot_index),
+                        GameEffect::MarkLastTurn(*turn + game_state.players.len() as u8),
+                    ]
+                }
+
+                _ => vec![],
+            }
+        }
+
         match action {
             PlayerAction::PlayCard(SlotIndex(index)) => {
                 let slot = current_player
@@ -64,34 +87,39 @@ impl GameState {
                     .ok_or_else(|| "Invalid slot index".to_string())?;
                 let play_result = self.check_play(&slot.card);
 
-                match play_result {
-                    PlayedCardResult::Accepted => {
-                        return Ok(vec![
-                            RemoveCard(player_index, SlotIndex(index)),
-                            PlaceOnBoard(slot.card),
-                            DrawCard(player_index, SlotIndex(index)),
-                            NextTurn(next_turn),
-                        ]);
-                    }
-                    PlayedCardResult::CompletedSet => {
-                        return Ok(vec![
-                            RemoveCard(player_index, SlotIndex(index)),
-                            PlaceOnBoard(slot.card),
-                            DrawCard(player_index, SlotIndex(index)),
-                            IncHint,
-                            NextTurn(next_turn),
-                        ]);
-                    }
-                    PlayedCardResult::Rejected => {
-                        return Ok(vec![
-                            RemoveCard(player_index, SlotIndex(index)),
-                            AddToDiscrard(slot.card),
-                            DrawCard(player_index, SlotIndex(index)),
-                            BurnFuse,
-                            NextTurn(next_turn),
-                        ]);
-                    }
-                }
+                return Ok([
+                    match play_result {
+                        PlayedCardResult::Accepted => {
+                            vec![
+                                RemoveCard(player_index, SlotIndex(index)),
+                                PlaceOnBoard(slot.card),
+                            ]
+                        }
+                        PlayedCardResult::CompletedSet => {
+                            vec![
+                                RemoveCard(player_index, SlotIndex(index)),
+                                PlaceOnBoard(slot.card),
+                                DrawCard(player_index, SlotIndex(index)),
+                                IncHint,
+                                NextTurn(next_turn),
+                            ]
+                        }
+                        PlayedCardResult::Rejected => {
+                            vec![
+                                RemoveCard(player_index, SlotIndex(index)),
+                                AddToDiscrard(slot.card),
+                                DrawCard(player_index, SlotIndex(index)),
+                                BurnFuse,
+                                NextTurn(next_turn),
+                            ]
+                        }
+                    },
+                    draw_card_effect(self, player_index, SlotIndex(index)),
+                    vec![NextTurn(next_turn)],
+                ]
+                .into_iter()
+                .flatten()
+                .collect_vec());
             }
             PlayerAction::DiscardCard(SlotIndex(index)) => {
                 let slot = current_player
@@ -262,10 +290,9 @@ impl GameState {
                             hints: Vec::new(),
                         });
                 }
-
-                if self.draw_pile.len() == 0 && self.last_turn.is_none() {
-                    self.last_turn = Some(self.turn + self.players.len() as u8);
-                }
+            }
+            GameEffect::MarkLastTurn(turn_count) => {
+                self.last_turn = Some(turn_count);
             }
             GameEffect::RemoveCard(PlayerIndex(player_index), SlotIndex(slot_index)) => {
                 let player = self

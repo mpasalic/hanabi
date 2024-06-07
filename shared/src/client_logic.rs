@@ -228,18 +228,14 @@ impl GameLog {
 
     pub fn log<'a>(&'a mut self, action: PlayerAction) -> Result<&'a GameState, String> {
         let mut new_game_state = self.current_game_state().clone();
-        self.history.push(GameEvent::PlayerAction(
-            new_game_state.current_player_index(),
-            action.clone(),
-        ));
 
         let effects = new_game_state.play(action.clone())?;
-        self.history.extend(
-            effects
-                .clone()
-                .into_iter()
-                .map(|effect| GameEvent::GameEffect(effect)),
-        );
+
+        self.history.push(GameEvent::PlayerAction {
+            player_index: new_game_state.current_player_index(),
+            action: action.clone(),
+            effects: effects.clone(),
+        });
 
         new_game_state.run_effects(effects)?;
         self.log.push((action, new_game_state));

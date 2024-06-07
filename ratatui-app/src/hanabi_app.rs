@@ -4,7 +4,12 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, ScrollDirection},
 };
 use ratatui::{style::Stylize, widgets::WidgetRef, Terminal};
-use std::{char::from_digit, collections::HashMap, error::Error, iter};
+use std::{
+    char::from_digit,
+    collections::HashMap,
+    error::Error,
+    iter::{self, Peekable},
+};
 use taffy::{
     style_helpers::{length, percent},
     JustifyContent, Overflow, Point,
@@ -396,15 +401,10 @@ impl HanabiApp {
         )
     }
 
-    fn render_game_log(&self, log: Vec<String>) -> Node<'static> {
+    fn render_game_log(&self, log: Vec<Line<'static>>) -> Node<'static> {
         use taffy::prelude::*;
 
         let log_color = Color::Gray;
-
-        let lines: Vec<Span> = log
-            .iter()
-            .map(|line| Span::from(format!("{}", line)).style(default_style().fg(NORMAL_TEXT)))
-            .collect_vec();
 
         Block::new()
             .borders(Borders::ALL)
@@ -429,7 +429,7 @@ impl HanabiApp {
                         },
                         ..Stack::default_layout()
                     },
-                    Text::from(lines.into_iter().map(|l| l.into()).collect_vec()),
+                    Text::from(log),
                     self.game_log_scroll_adjust,
                 )
                 .scrollable(AppAction::ScrollGameLog(1), AppAction::ScrollGameLog(-1))],
@@ -628,69 +628,285 @@ impl HanabiApp {
     }
 }
 
-fn generate_game_log(game_state: &GameStateSnapshot, players: &Vec<OnlinePlayer>) -> Vec<String> {
+struct GameLogRow {
+    player_index: usize,
+    action: PlayerAction,
+    effects: Vec<GameEffect>,
+    outcome: Option<GameOutcome>,
+}
+
+fn generate_game_log(
+    game_state: &GameStateSnapshot,
+    players: &Vec<OnlinePlayer>,
+) -> Vec<Line<'static>> {
     use shared::model::GameEffect as Eff;
     use shared::model::GameEvent as Ev;
-    let log_lines: Vec<String> = game_state
-        .log
+
+    let player_names = players
         .iter()
-        .filter_map(|event| match event.to_owned() {
-            Ev::PlayerAction(PlayerIndex(index), action) => {
-                let player_name = players[index].name.clone().white();
-                match action {
-                    PlayerAction::PlayCard(SlotIndex(card)) => {
-                        Some(format!("{} played card #{}", player_name, card))
-                    }
-                    PlayerAction::DiscardCard(SlotIndex(card)) => {
-                        Some(format!("{} discarded card #{}", player_name, card))
-                    }
-                    PlayerAction::GiveHint(
-                        PlayerIndex(hinted_player),
-                        HintAction::SameFace(face),
-                    ) => Some(format!(
-                        "{} gave a hint on {}'s {}",
-                        player_name,
-                        players[hinted_player].name.clone().white(),
-                        face.key().bold()
-                    )),
-                    PlayerAction::GiveHint(
-                        PlayerIndex(hinted_player),
-                        HintAction::SameSuit(suit),
-                    ) => Some(format!(
-                        "{} gave a hint on {}'s {}",
-                        player_name,
-                        players[hinted_player].name.clone().white(),
-                        suit.key().fg(colorize_suit(suit)).bold()
-                    )),
-                }
+        .map(|p| {
+            if p.name.len() > 8 {
+                format!("{}...", &p.name[0..8].to_string())
+            } else {
+                p.name.clone()
             }
-            Ev::GameEffect(effect) => match effect {
-                Eff::AddToDiscrard(Card { suit, face }) => Some(format!(
-                    "{} added to discard pile",
-                    face.key().fg(colorize_suit(suit)).bold()
-                )),
-                GameEffect::DrawCard(PlayerIndex(player), _) => {
-                    Some(format!("{} drew a card", players[player].name))
-                }
-                GameEffect::RemoveCard(_, _) => None,
-                GameEffect::PlaceOnBoard(Card { face, suit }) => {
-                    Some(format!("{}{} added to the board", suit.key(), face.key()))
-                }
-                GameEffect::HintCard(_, _, _) => None,
-                GameEffect::DecHint => None,
-                GameEffect::IncHint => Some("+1 hint".to_string()),
-                GameEffect::BurnFuse => Some("-1 fuse".to_string()),
-                GameEffect::NextTurn(PlayerIndex(player)) => {
-                    Some(format!("{}'s turn", players[player].name))
-                }
-            },
-            Ev::GameOver(outcome) => Some(match outcome {
-                GameOutcome::Win => format!("Victory!"),
-                GameOutcome::Fail { score } => format!("Defeat (score = {})", score),
-            }),
         })
         .collect_vec();
-    log_lines
+    let self_player = game_state.player_snapshot.0;
+
+    let player_name = move |player_index: usize| {
+        Span::from(player_names[player_index].clone())
+            .style(default_style().fg(if player_index == self_player {
+                SELECTION_COLOR
+            } else {
+                Color::White
+            }))
+            .bold()
+    };
+
+    // fn player_name(player: &OnlinePlayer, is_me: bool) -> Span<'static> {
+    //     let name = if player.name.len() > 8 {
+    //         format!("{}...", &player.name[0..8].to_string())
+    //     } else {
+    //         player.name.clone()
+    //     };
+
+    // }
+
+    fn card(c: Card) -> Span<'static> {
+        let Card { suit, face } = c;
+        format!("{}{}", suit_span(suit), face_span(face))
+            .fg(colorize_suit(suit))
+            .bold()
+    }
+
+    fn suit_span(suit: CardSuit) -> Span<'static> {
+        // Span::from(suit.key())
+        //     .style(default_style().fg(BACKGROUND_COLOR).bg(colorize_suit(suit)))
+        //     .bold()
+        Span::from(match suit {
+            CardSuit::Red => "R",
+            CardSuit::Green => "G",
+            CardSuit::Yellow => "Y",
+            CardSuit::White => "W",
+            CardSuit::Blue => "B",
+            // CardSuit::Red => "\u{f0b19}",
+            // CardSuit::Green => "\u{f0b0e}",
+            // CardSuit::Yellow => "\u{f0b20}",
+            // CardSuit::White => "\u{f0b1e}",
+            // CardSuit::Blue => "\u{f0b09}",
+        })
+        .fg(colorize_suit(suit))
+        .bold()
+        // .fg(BACKGROUND_COLOR)
+    }
+
+    fn face_span(face: CardFace) -> Span<'static> {
+        Span::from(match face {
+            CardFace::One => "1",
+            CardFace::Two => "2",
+            CardFace::Three => "3",
+            CardFace::Four => "4",
+            CardFace::Five => "5",
+            // CardFace::One => "\u{f03a6}",
+            // CardFace::Two => "\u{f03a9}",
+            // CardFace::Three => "\u{f03ac}",
+            // CardFace::Four => "\u{f03ae}",
+            // CardFace::Five => "\u{f03b0}",
+        })
+        .fg(NORMAL_TEXT)
+        .bold()
+    }
+
+    fn card_played(effects: &Vec<GameEffect>) -> Card {
+        let card_played = effects.iter().find_map(|effect| match effect {
+            Eff::PlaceOnBoard(card) => Some(card),
+            Eff::AddToDiscrard(card) => Some(card),
+            _ => None,
+        });
+
+        *card_played.unwrap()
+    }
+
+    fn hint_slots(effects: &Vec<GameEffect>) -> Vec<usize> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Eff::HintCard(_, SlotIndex(index), Hint::IsFace(_) | Hint::IsSuit(_)) => {
+                    Some(*index)
+                }
+                _ => None,
+            })
+            .collect_vec()
+    }
+
+    fn hint_spans(hint_type: HintAction, effects: &Vec<GameEffect>) -> Vec<Span<'static>> {
+        hint_slots(&effects)
+            .into_iter()
+            .map(|_| match hint_type {
+                HintAction::SameFace(face) => face_span(face),
+                HintAction::SameSuit(suit) => suit_span(suit),
+            })
+            // .intersperse(Span::raw(" "))
+            .collect_vec()
+    }
+
+    fn hint_count(effects: &Vec<GameEffect>) -> usize {
+        // match effects
+        //     .iter()
+        //     .filter(|e| matches!(e, Eff::HintCard(_, _, _)))
+        //     .count()
+        // {
+        //     1 => Span::from(" 1x "),
+        //     2 => Span::from(" 2x "),
+        //     3 => Span::from(" 3x "),
+        //     4 => Span::from(" 4x "),
+        //     5 => Span::from(" 5x "),
+        //     _ => panic!("invalid hint count"),
+        // }
+        // .fg(NORMAL_TEXT)
+        effects
+            .iter()
+            .filter(|e| matches!(e, Eff::HintCard(_, _, _)))
+            .count()
+    }
+
+    fn result_span(effects: &Vec<GameEffect>) -> Span<'static> {
+        let result = effects.iter().find_map(|effect| match effect {
+            Eff::BurnFuse => Some(" (\u{f1052} \u{f0691} ) "),
+            Eff::IncHint => Some(" (\u{f15cb} \u{f017} ) "),
+            Eff::MarkLastTurn(_) => Some(" LAST ROUND!"),
+            _ => None,
+        });
+
+        match result {
+            Some(result) => Span::from(result).style(default_style()),
+            None => Span::raw(""),
+        }
+    }
+
+    fn count_span(i: usize) -> Span<'static> {
+        Span::raw(format!("{}. ", i + 1))
+    }
+
+    let game_log_iter =
+        game_state
+            .log
+            .iter()
+            .cloned()
+            .into_iter()
+            .enumerate()
+            .map(|(turn_index, game_log)| match game_log {
+                GameEvent::PlayerAction {
+                    player_index: PlayerIndex(player_index),
+                    action: PlayerAction::PlayCard(SlotIndex(index)),
+                    effects,
+                } => [
+                    count_span(turn_index),
+                    player_name(player_index),
+                    Span::raw(" played "),
+                    card(card_played(&effects)),
+                    result_span(&effects),
+                ]
+                .to_vec(),
+                GameEvent::PlayerAction {
+                    player_index: PlayerIndex(player_index),
+                    action: PlayerAction::DiscardCard(SlotIndex(index)),
+                    effects,
+                } => [
+                    count_span(turn_index),
+                    player_name(player_index),
+                    Span::raw(" discarded "),
+                    card(card_played(&effects)),
+                    result_span(&effects),
+                ]
+                .to_vec(),
+                GameEvent::PlayerAction {
+                    player_index: PlayerIndex(player_index),
+                    action: PlayerAction::GiveHint(PlayerIndex(hinted_index), hint),
+                    effects,
+                } => [
+                    count_span(turn_index),
+                    player_name(player_index),
+                    Span::raw(" hinted "),
+                    player_name(hinted_index),
+                    Span::raw(" "),
+                ]
+                .into_iter()
+                .chain(hint_spans(hint, &effects))
+                .collect_vec(),
+                Ev::GameOver(outcome) => [
+                    Span::raw("Game Over: "),
+                    match outcome {
+                        GameOutcome::Win => Span::raw("Victory!"),
+                        GameOutcome::Fail { score } => {
+                            Span::raw(format!("Defeat (score = {})", score))
+                        }
+                    },
+                ]
+                .to_vec(),
+            });
+
+    game_log_iter.map(|spans| Line::from(spans)).collect_vec()
+
+    // let log_lines: Vec<String> = game_state
+    //     .log
+    //     .iter()
+    //     .filter_map(|event| match event.to_owned() {
+    //         Ev::PlayerAction(PlayerIndex(index), action) => {
+    //             let player_name = players[index].name.clone().white();
+    //             match action {
+    //                 PlayerAction::PlayCard(SlotIndex(card)) => {}
+    //                 PlayerAction::DiscardCard(SlotIndex(card)) => {
+    //                     Some(format!("{} discarded card #{}", player_name, card))
+    //                 }
+    //                 PlayerAction::GiveHint(
+    //                     PlayerIndex(hinted_player),
+    //                     HintAction::SameFace(face),
+    //                 ) => Some(format!(
+    //                     "{} gave a hint on {}'s {}",
+    //                     player_name,
+    //                     players[hinted_player].name.clone().white(),
+    //                     face.key().bold()
+    //                 )),
+    //                 PlayerAction::GiveHint(
+    //                     PlayerIndex(hinted_player),
+    //                     HintAction::SameSuit(suit),
+    //                 ) => Some(format!(
+    //                     "{} gave a hint on {}'s {}",
+    //                     player_name,
+    //                     players[hinted_player].name.clone().white(),
+    //                     suit.key().fg(colorize_suit(suit)).bold()
+    //                 )),
+    //             }
+    //         }
+    //         Ev::GameEffect(effect) => match effect {
+    //             Eff::AddToDiscrard(Card { suit, face }) => Some(format!(
+    //                 "{} added to discard pile",
+    //                 face.key().fg(colorize_suit(suit)).bold()
+    //             )),
+    //             GameEffect::DrawCard(PlayerIndex(player), _) => {
+    //                 Some(format!("{} drew a card", players[player].name))
+    //             }
+    //             GameEffect::RemoveCard(_, _) => None,
+    //             GameEffect::PlaceOnBoard(Card { face, suit }) => {
+    //                 Some(format!("{}{} added to the board", suit.key(), face.key()))
+    //             }
+    //             GameEffect::HintCard(_, _, _) => None,
+    //             GameEffect::DecHint => None,
+    //             GameEffect::IncHint => Some("+1 hint".to_string()),
+    //             GameEffect::BurnFuse => Some("-1 fuse".to_string()),
+    //             GameEffect::NextTurn(PlayerIndex(player)) => {
+    //                 Some(format!("{}'s turn", players[player].name))
+    //             }
+    //         },
+    //         Ev::GameOver(outcome) => Some(match outcome {
+    //             GameOutcome::Win => format!("Victory!"),
+    //             GameOutcome::Fail { score } => format!("Defeat (score = {})", score),
+    //         }),
+    //     })
+    //     .collect_vec();
+    // log_lines
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -876,7 +1092,7 @@ fn player_node_props(
 struct GameProps {
     board_render_state: BoardProps,
     players: Vec<PlayerNodeProps>,
-    game_log: Vec<String>,
+    game_log: Vec<Line<'static>>,
 }
 
 impl From<HanabiApp> for GameProps {
