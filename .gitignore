@@ -1,5 +1,4 @@
 /target
 .vscode
 /web-client/dist
-/dist
 .DS_Store
