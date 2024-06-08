@@ -216,7 +216,7 @@ impl GameLog {
     pub fn new<R: SeedableRng + Rng>(config: GameConfig) -> Self {
         GameLog {
             config: config.clone(),
-            initial: GameState::start::<R>(&config).unwrap(),
+            initial: GameState::start_with_seed::<R>(&config).unwrap(),
             log: vec![],
             history: vec![],
         }
@@ -295,7 +295,7 @@ impl GameLog {
             num_rounds: game_state.turn,
             last_turn: game_state.last_turn,
             outcome: game_state.outcome,
-            game_config: game_state.game_config,
+            game_config: self.config.clone(),
         }
     }
 }
