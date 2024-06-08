@@ -525,8 +525,16 @@ impl eframe::App for HelloApp {
                                 Some (Binding::Scroll { action, .. }) => {
                                     hanabi_app.handle_action(*action).unwrap();
                                 }
-                                _ => (),
+                                None => {
+                                    let key = key_code_to_char(e);
+                                    if let Some(key) = key {
+                                        println!("Event: {:?} -> {:?}", e, key);
+                                        let _ = hanabi_app.handle_event(key).unwrap();
+
+                                    }
+                                },
                             }
+
                         })
                     });
                 });

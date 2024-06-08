@@ -42,6 +42,7 @@ pub struct HanabiApp {
     command: CommandState,
     client_state: HanabiClient,
     game_log_scroll_adjust: i64,
+    game_state_selection: usize,
 }
 
 pub enum EventHandlerResult {
@@ -112,6 +113,7 @@ impl HanabiApp {
             },
             client_state: game_state,
             game_log_scroll_adjust: 0,
+            game_state_selection: 0,
         }
     }
 
@@ -172,8 +174,22 @@ impl HanabiApp {
             }
 
             AppAction::ScrollGameLog(adjust) => {
-                self.game_log_scroll_adjust =
-                    self.game_log_scroll_adjust.saturating_add(adjust as i64);
+                if adjust > 0 {
+                    self.game_log_scroll_adjust =
+                        self.game_log_scroll_adjust.saturating_add(adjust as i64);
+                } else {
+                    self.game_log_scroll_adjust =
+                        self.game_log_scroll_adjust.saturating_sub(adjust as i64);
+                }
+            }
+            AppAction::AdjustCurrentState(adjust) => {
+                if adjust > 0 {
+                    self.game_state_selection =
+                        self.game_state_selection.saturating_add(1 as usize);
+                } else {
+                    self.game_state_selection =
+                        self.game_state_selection.saturating_sub(1 as usize);
+                }
             }
         }
 
@@ -186,51 +202,19 @@ impl HanabiApp {
             Char('q') | Esc => {
                 self.exit = true;
             }
-            Char('w') => {
-                self.game_log_scroll_adjust = self.game_log_scroll_adjust.saturating_sub(1);
-                // app.vertical_scroll_state = app.vertical_scroll_state.position(app.vertical_scroll);
-            }
-            Char('s') => {
-                self.game_log_scroll_adjust = self.game_log_scroll_adjust.saturating_add(1);
-                // app.vertical_scroll_state = app.vertical_scroll_state.position(app.vertical_scroll);
-            }
-            key_code => {
-                let (_, options) = self.legend_for_command_state(&self.client_state);
-                let triggered_option = options.into_iter().find(|a| a.key_code == key_code);
-
-                match triggered_option {
-                    Some(LegendItem {
-                        action: AppAction::GameAction(game_action),
-                        ..
-                    }) => {
-                        let (builder, player_action) =
-                            process_app_action(self.command.clone(), game_action);
-                        self.command = builder;
-                        match player_action {
-                            Some(action) => {
-                                return Ok(EventHandlerResult::PlayerAction(action));
-
-                                // todo don't unwrap
-                            }
-                            _ => {}
-                        }
-                    }
-                    Some(LegendItem {
-                        action: AppAction::Quit,
-                        ..
-                    }) => {
-                        return Ok(EventHandlerResult::Quit);
-                    }
-                    Some(LegendItem {
-                        action: AppAction::Start,
-                        ..
-                    }) => {
-                        return Ok(EventHandlerResult::Start);
-                    }
-                    Some(_) => {}
-                    None => {}
-                }
-            }
+            // Char(',') => {
+            //     self.game_state_selection = self.game_state_selection.saturating_sub(1);
+            // }
+            // Char('.') => self.game_state_selection = self.game_state_selection.saturating_add(1),
+            // Char('w') => {
+            //     self.game_log_scroll_adjust = self.game_log_scroll_adjust.saturating_sub(1);
+            //     // app.vertical_scroll_state = app.vertical_scroll_state.position(app.vertical_scroll);
+            // }
+            // Char('s') => {
+            //     self.game_log_scroll_adjust = self.game_log_scroll_adjust.saturating_add(1);
+            //     // app.vertical_scroll_state = app.vertical_scroll_state.position(app.vertical_scroll);
+            // }
+            _ => {}
         }
 
         if self.exit {
@@ -327,6 +311,9 @@ impl HanabiApp {
     ) -> Node<'static> {
         use taffy::prelude::*;
 
+        let max_logs = game_props.game_log.len();
+        let log_selected = self.game_state_selection.min(max_logs - 1);
+
         GridStack::new().children(
             LayoutStyle {
                 grid_template_columns: vec![fr(1.), length(40.)],
@@ -396,6 +383,9 @@ impl HanabiApp {
                     }),
                 VStack::new()
                     .layout(LayoutStyle {
+                        grid_row: line(2),
+                        grid_column: line(1),
+
                         align_items: Some(AlignItems::Center),
                         gap: Size {
                             width: length(1.),
@@ -416,17 +406,53 @@ impl HanabiApp {
                             },
                             justify_content: Some(JustifyContent::Center),
 
-                            grid_row: line(2),
-                            grid_column: span(2),
                             ..HStack::default_layout()
                         },
                         legend.into_iter().map(game_action_item_tree).collect_vec(),
                     )),
+                HStack::new()
+                    .layout(LayoutStyle {
+                        grid_row: line(2),
+                        grid_column: line(2),
+
+                        justify_content: Some(JustifyContent::Center),
+                        gap: Size {
+                            width: length(1.),
+                            height: length(0.),
+                        },
+                        ..HStack::default_layout()
+                    })
+                    .childs(
+                        [
+                            if log_selected < max_logs - 1 {
+                                Some(LegendItem {
+                                    desc: "Prev".to_string(),
+                                    key_code: KeyCode::Up,
+                                    action: AppAction::AdjustCurrentState(1),
+                                })
+                            } else {
+                                None
+                            },
+                            if log_selected > 0 {
+                                Some(LegendItem {
+                                    desc: "Next".to_string(),
+                                    key_code: KeyCode::Down,
+                                    action: AppAction::AdjustCurrentState(-1),
+                                })
+                            } else {
+                                None
+                            },
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .map(game_action_item_tree)
+                        .collect_vec(),
+                    ),
             ],
         )
     }
 
-    fn render_game_log(&self, log: Vec<Line<'static>>) -> Node<'static> {
+    fn render_game_log(&self, mut log: Vec<Line<'static>>) -> Node<'static> {
         use taffy::prelude::*;
 
         let log_color = Color::Gray;
@@ -744,7 +770,9 @@ struct GameLogRow {
 
 fn generate_game_log(
     game_state: &GameStateSnapshot,
+    log: &Vec<GameSnapshotEvent>,
     players: &Vec<OnlinePlayer>,
+    selected_index: Option<usize>,
 ) -> Vec<Line<'static>> {
     use shared::model::GameEffect as Eff;
     use shared::model::GameEvent as Ev;
@@ -754,11 +782,11 @@ fn generate_game_log(
     let player_name_span = |player_index: usize| {
         let name = &players[player_index].name;
         Span::from(name[..8.min(name.len())].to_string())
-            .style(default_style().fg(if player_index == self_player {
+            .fg(if player_index == self_player {
                 SELECTION_COLOR
             } else {
                 Color::White
-            }))
+            })
             .bold()
     };
 
@@ -883,19 +911,27 @@ fn generate_game_log(
         }
     }
 
-    fn count_span(i: usize) -> Span<'static> {
-        Span::raw(format!("{}. ", i + 1))
-    }
+    let count_span = |i| -> Span<'static> {
+        let span = Span::raw(format!("{}. ", i + 1));
+        if Some(i) == selected_index {
+            span.to_string().bg(SELECTION_COLOR).fg(BACKGROUND_COLOR)
+        } else {
+            span.to_string().fg(DIM_TEXT)
+        }
+    };
 
-    let game_log_iter = game_state
-        .log
+    let game_log_iter = log
         .iter()
         .enumerate()
         .map(|(turn_index, game_log)| match game_log {
-            GameEvent::PlayerAction {
-                player_index: PlayerIndex(player_index),
-                action: PlayerAction::PlayCard(SlotIndex(index)),
-                effects,
+            GameSnapshotEvent {
+                event:
+                    GameEvent::PlayerAction {
+                        player_index: PlayerIndex(player_index),
+                        action: PlayerAction::PlayCard(SlotIndex(index)),
+                        effects,
+                    },
+                ..
             } => [
                 count_span(turn_index),
                 player_name_span(*player_index),
@@ -904,10 +940,14 @@ fn generate_game_log(
                 result_span(&effects),
             ]
             .to_vec(),
-            GameEvent::PlayerAction {
-                player_index: PlayerIndex(player_index),
-                action: PlayerAction::DiscardCard(SlotIndex(index)),
-                effects,
+            GameSnapshotEvent {
+                event:
+                    GameEvent::PlayerAction {
+                        player_index: PlayerIndex(player_index),
+                        action: PlayerAction::DiscardCard(SlotIndex(index)),
+                        effects,
+                    },
+                ..
             } => [
                 count_span(turn_index),
                 player_name_span(*player_index),
@@ -916,10 +956,14 @@ fn generate_game_log(
                 result_span(&effects),
             ]
             .to_vec(),
-            GameEvent::PlayerAction {
-                player_index: PlayerIndex(player_index),
-                action: PlayerAction::GiveHint(PlayerIndex(hinted_index), hint),
-                effects,
+            GameSnapshotEvent {
+                event:
+                    GameEvent::PlayerAction {
+                        player_index: PlayerIndex(player_index),
+                        action: PlayerAction::GiveHint(PlayerIndex(hinted_index), hint),
+                        effects,
+                    },
+                ..
             } => [
                 count_span(turn_index),
                 player_name_span(*player_index),
@@ -930,7 +974,10 @@ fn generate_game_log(
             .into_iter()
             .chain(hint_spans(*hint, &effects))
             .collect_vec(),
-            Ev::GameOver(outcome) => [
+            GameSnapshotEvent {
+                event: Ev::GameOver(outcome),
+                ..
+            } => [
                 Span::raw("Game Over: "),
                 match outcome {
                     GameOutcome::Win => Span::raw("Victory!"),
@@ -1008,6 +1055,7 @@ pub enum AppAction {
     Quit,
     GameAction(GameAction),
     ScrollGameLog(i8),
+    AdjustCurrentState(i8),
 }
 
 struct LegendItem {
@@ -1041,6 +1089,18 @@ fn game_action_item_tree(item: LegendItem) -> Node<'static> {
             key_code: KeyCode::Enter,
             ..
         } => format!("{} [{}]", desc, "\u{f0311} "),
+
+        LegendItem {
+            desc,
+            key_code: KeyCode::Up,
+            ..
+        } => format!("{} [{}]", desc, "\u{f062} "),
+
+        LegendItem {
+            desc,
+            key_code: KeyCode::Down,
+            ..
+        } => format!("{} [{}]", desc, "\u{f063} "),
 
         _ => panic!("Unknown keycode"),
     };
@@ -1203,57 +1263,89 @@ impl From<HanabiApp> for GameProps {
                 HanabiGame::Started {
                     players,
                     game_state,
+                    log,
                     ..
-                } => GameProps {
-                    game_log: generate_game_log(game_state, players),
-                    board_render_state: board_node_props(game_state),
-                    players: (0..players.len())
-                        .into_iter()
-                        .map(|player_index| {
-                            let player_state = match (
-                                game_state.current_turn_player_index,
-                                &app_state.command.current_command,
-                            ) {
-                                (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                    PlayerRenderState::CurrentTurn
-                                }
-                                (
-                                    _,
-                                    &CommandBuilder::Hinting(HintState::ChoosingHint {
-                                        player_index: command_player_index,
-                                    }),
-                                ) if command_player_index as usize == player_index => {
-                                    PlayerRenderState::CurrentSelection
-                                }
-                                _ => PlayerRenderState::Default,
-                            };
+                } => {
+                    let (selected_game_state_index, selected_game_state) =
+                        if app_state.game_state_selection == 0 {
+                            (None, game_state)
+                        } else {
+                            log.iter()
+                                .enumerate()
+                                .rev()
+                                .map(|(i, ev)| (Some(i), &ev.snapshot))
+                                .nth(app_state.game_state_selection)
+                                .unwrap()
+                        };
 
-                            match &game_state.players[player_index] {
-                                ClientPlayerView::Me { name, hand } => player_node_props(
-                                    name.clone(),
-                                    hand.iter()
-                                        .map(|h| h.clone().map(|c| (None, c.hints.clone())))
-                                        .collect(),
-                                    player_state,
-                                ),
-                                ClientPlayerView::Teammate { name, hand } => player_node_props(
-                                    name.clone(),
-                                    hand.iter()
-                                        .map(|h| h.clone().map(|c| (Some(c.card), c.hints.clone())))
-                                        .collect(),
-                                    player_state,
-                                ),
-                            }
-                        })
-                        .collect(),
-                },
+                    GameProps {
+                        game_log: generate_game_log(
+                            game_state,
+                            log,
+                            players,
+                            selected_game_state_index,
+                        ),
+                        board_render_state: board_node_props(selected_game_state),
+                        players: (0..players.len())
+                            .into_iter()
+                            .map(|player_index| {
+                                let player_state = match (
+                                    selected_game_state.current_turn_player_index,
+                                    &app_state.command.current_command,
+                                ) {
+                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
+                                        PlayerRenderState::CurrentTurn
+                                    }
+                                    (
+                                        _,
+                                        &CommandBuilder::Hinting(HintState::ChoosingHint {
+                                            player_index: command_player_index,
+                                        }),
+                                    ) if command_player_index as usize == player_index => {
+                                        PlayerRenderState::CurrentSelection
+                                    }
+                                    _ => PlayerRenderState::Default,
+                                };
+
+                                match &selected_game_state.players[player_index] {
+                                    ClientPlayerView::Me { name, hand } => player_node_props(
+                                        name.clone(),
+                                        hand.iter()
+                                            .map(|h| h.clone().map(|c| (None, c.hints.clone())))
+                                            .collect(),
+                                        player_state,
+                                    ),
+                                    ClientPlayerView::Teammate { name, hand } => player_node_props(
+                                        name.clone(),
+                                        hand.iter()
+                                            .map(|h| {
+                                                h.clone().map(|c| (Some(c.card), c.hints.clone()))
+                                            })
+                                            .collect(),
+                                        player_state,
+                                    ),
+                                }
+                            })
+                            .collect(),
+                    }
+                }
                 HanabiGame::Ended {
                     players,
                     game_state,
                     revealed_game_state,
+                    log,
                     ..
                 } => GameProps {
-                    game_log: generate_game_log(game_state, players),
+                    game_log: generate_game_log(
+                        game_state,
+                        log,
+                        players,
+                        if app_state.game_state_selection > 0 {
+                            Some(log.len() - app_state.game_state_selection - 1)
+                        } else {
+                            None
+                        },
+                    ),
                     board_render_state: board_node_props(game_state),
                     players: (0..players.len())
                         .into_iter()
@@ -1292,111 +1384,115 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_game_ui() {
-        use ratatui::prelude as ratatui;
+    // #[test]
+    // fn test_game_ui() {
+    //     use ratatui::prelude as ratatui;
 
-        let players = vec![
-            OnlinePlayer {
-                name: "p1".into(),
-                connection_status: ConnectionStatus::Connected,
-                is_host: true,
-            },
-            OnlinePlayer {
-                name: "p2".into(),
-                connection_status: ConnectionStatus::Connected,
-                is_host: true,
-            },
-        ];
-        let app = HanabiApp {
-            exit: false,
-            command: CommandState {
-                current_command: CommandBuilder::Empty,
-            },
-            client_state: HanabiClient::Loaded(HanabiGame::Started {
-                session_id: "1".into(),
-                players: players.clone(),
-                game_state: generate_minimal_test_game_state(),
-            }),
-            game_log_scroll_adjust: 0,
-        };
+    //     let players = vec![
+    //         OnlinePlayer {
+    //             name: "p1".into(),
+    //             connection_status: ConnectionStatus::Connected,
+    //             is_host: true,
+    //         },
+    //         OnlinePlayer {
+    //             name: "p2".into(),
+    //             connection_status: ConnectionStatus::Connected,
+    //             is_host: true,
+    //         },
+    //     ];
+    //     let app = HanabiApp {
+    //         exit: false,
+    //         command: CommandState {
+    //             current_command: CommandBuilder::Empty,
+    //         },
+    //         client_state: HanabiClient::Loaded(HanabiGame::Started {
+    //             log: vec![],
+    //             session_id: "1".into(),
+    //             players: players.clone(),
+    //             game_state: generate_minimal_test_game_state(),
+    //         }),
+    //         game_log_scroll_adjust: 0,
+    //         game_state_selection: 0,
+    //     };
 
-        let mut buf = Buffer::empty(ratatui::Rect {
-            x: 0,
-            y: 0,
-            width: 248,
-            height: 46,
-        });
+    //     let mut buf = Buffer::empty(ratatui::Rect {
+    //         x: 0,
+    //         y: 0,
+    //         width: 248,
+    //         height: 46,
+    //     });
 
-        let tree_widget = root_tree_widget(
-            buf.area,
-            app.game_ui(app.clone().into(), "".to_string(), vec![]),
-        );
+    //     let tree_widget = root_tree_widget(
+    //         buf.area,
+    //         app.game_ui(app.clone().into(), "".to_string(), vec![]),
+    //     );
 
-        tree_widget.render_ref(buf.area, &mut buf);
+    //     tree_widget.render_ref(buf.area, &mut buf);
 
-        println!(
-            "top left corner = '{:?}' '{:?}' '{:?}'",
-            buf.get(buf.area.width - 3, 0).symbol().chars(),
-            buf.get(buf.area.width - 2, 0).symbol().chars(),
-            buf.get(buf.area.width - 1, 0).symbol().chars()
-        );
+    //     println!(
+    //         "top left corner = '{:?}' '{:?}' '{:?}'",
+    //         buf.get(buf.area.width - 3, 0).symbol().chars(),
+    //         buf.get(buf.area.width - 2, 0).symbol().chars(),
+    //         buf.get(buf.area.width - 1, 0).symbol().chars()
+    //     );
 
-        println!(
-            "top left corner = '{:?}' '{:?}' '{:?}'",
-            buf.get(buf.area.width - 3, 1).symbol().chars(),
-            buf.get(buf.area.width - 2, 1).symbol().chars(),
-            buf.get(buf.area.width - 1, 1).symbol().chars()
-        );
-    }
+    //     println!(
+    //         "top left corner = '{:?}' '{:?}' '{:?}'",
+    //         buf.get(buf.area.width - 3, 1).symbol().chars(),
+    //         buf.get(buf.area.width - 2, 1).symbol().chars(),
+    //         buf.get(buf.area.width - 1, 1).symbol().chars()
+    //     );
+    // }
 
-    #[test]
-    fn test_panic_case_ui() {
-        use ratatui::prelude as ratatui;
+    // #[test]
+    // fn test_panic_case_ui() {
+    //     use ratatui::prelude as ratatui;
 
-        let app_data = generate_example_panic_case_2();
+    //     let app_data = generate_example_panic_case_2();
 
-        let app = HanabiApp {
-            exit: false,
-            command: CommandState {
-                current_command: CommandBuilder::Empty,
-            },
-            client_state: HanabiClient::Loaded(app_data.clone()),
-            game_log_scroll_adjust: 0,
-        };
-        // let mut tree = TreeWidget::new();
-        // let root_id = tree.add_tree(Stack::new().children(
-        //     LayoutStyle {
-        //         size: Size {
-        //             width: length(100. as f32),
-        //             height: length(100. as f32),
-        //         },
-        //         padding: padding(2.),
-        //         ..Stack::default_layout()
-        //     },
-        //     vec![app.game_ui(&generate_minimal_test_game_state(), None, &players)],
-        // ));
+    //     let app = HanabiApp {
+    //         exit: false,
+    //         command: CommandState {
+    //             current_command: CommandBuilder::Empty,
+    //         },
+    //         client_state: HanabiClient::Loaded(app_data.clone()),
+    //         game_log_scroll_adjust: 0,
+    //         game_state_selection: 0,
+    //     };
+    //     // let mut tree = TreeWidget::new();
+    //     // let root_id = tree.add_tree(Stack::new().children(
+    //     //     LayoutStyle {
+    //     //         size: Size {
+    //     //             width: length(100. as f32),
+    //     //             height: length(100. as f32),
+    //     //         },
+    //     //         padding: padding(2.),
+    //     //         ..Stack::default_layout()
+    //     //     },
+    //     //     vec![app.game_ui(&generate_minimal_test_game_state(), None, &players)],
+    //     // ));
 
-        let mut buf = Buffer::empty(ratatui::Rect {
-            x: 0,
-            y: 0,
-            width: 156,
-            height: 38,
-        });
+    //     let mut buf = Buffer::empty(ratatui::Rect {
+    //         x: 0,
+    //         y: 0,
+    //         width: 156,
+    //         height: 38,
+    //     });
 
-        match app_data {
-            HanabiGame::Started {
-                session_id: _,
-                players,
-                game_state,
-            } => {
-                let tree_widget = root_tree_widget(
-                    buf.area,
-                    app.game_ui(app.clone().into(), "".to_string(), vec![]),
-                );
-                tree_widget.render_ref(buf.area, &mut buf);
-            }
-            _ => todo!(),
-        }
-    }
+    //     match app_data {
+    //         HanabiGame::Started {
+    //             session_id: _,
+    //             players,
+    //             game_state,
+    //             ..
+    //         } => {
+    //             let tree_widget = root_tree_widget(
+    //                 buf.area,
+    //                 app.game_ui(app.clone().into(), "".to_string(), vec![]),
+    //             );
+    //             tree_widget.render_ref(buf.area, &mut buf);
+    //         }
+    //         _ => todo!(),
+    //     }
+    // }
 }

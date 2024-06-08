@@ -26,7 +26,6 @@ impl GameState {
             remaining_hint_count: config.num_hints,
             turn: config.starting_player.0 as u8,
             outcome: None,
-            history: Vec::new(),
         };
 
         use GameEffect::*;
@@ -61,7 +60,6 @@ impl GameState {
             remaining_hint_count: config.num_hints,
             turn: config.starting_player.0 as u8,
             outcome: None,
-            history: Vec::new(),
         };
 
         use GameEffect::*;
@@ -550,7 +548,6 @@ mod tests {
             turn: 0,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -584,7 +581,6 @@ mod tests {
             turn: 0,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -615,7 +611,6 @@ mod tests {
             turn: 0,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -650,7 +645,6 @@ mod tests {
             turn: 0,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state.run_effects(vec![GameEffect::DecHint]).unwrap();
@@ -679,7 +673,6 @@ mod tests {
             turn: 0,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state.run_effects(vec![GameEffect::IncHint]).unwrap();
@@ -708,7 +701,6 @@ mod tests {
             turn: 0,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -739,7 +731,6 @@ mod tests {
             turn: 0,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -770,7 +761,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -801,7 +791,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -832,7 +821,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         game_state
@@ -896,7 +884,6 @@ mod tests {
             turn: 1,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(1)));
@@ -927,7 +914,6 @@ mod tests {
             turn: 12,
             last_turn: Some(12),
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(0)));
@@ -957,7 +943,6 @@ mod tests {
             turn: 1,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(0)));
@@ -994,7 +979,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(1)));
@@ -1031,7 +1015,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(1)));
@@ -1069,7 +1052,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::DiscardCard(SlotIndex(1)));
@@ -1106,7 +1088,6 @@ mod tests {
             turn: 10,
             last_turn: Some(12),
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::DiscardCard(SlotIndex(1)));
@@ -1142,7 +1123,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::DiscardCard(SlotIndex(1)));
@@ -1190,7 +1170,6 @@ mod tests {
             turn: 10,
             last_turn: Some(12),
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::GiveHint(
@@ -1241,7 +1220,6 @@ mod tests {
             turn: 10,
             last_turn: Some(12),
             outcome: None,
-            history: vec![],
         };
 
         let effects = game_state.play(PlayerAction::GiveHint(
@@ -1299,7 +1277,6 @@ mod tests {
             turn: 10,
             last_turn: None,
             outcome: None,
-            history: vec![],
         };
 
         let action = PlayerAction::PlayCard(SlotIndex(0));

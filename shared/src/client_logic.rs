@@ -1,9 +1,11 @@
+use itertools::Itertools;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    CardFace, CardSuit, ClientPlayerView, GameConfig, GameEvent, GameOutcome, GameState,
-    GameStateSnapshot, HiddenSlot, HintAction, PlayerAction, PlayerIndex, SlotIndex,
+    CardFace, CardSuit, ClientPlayerView, GameConfig, GameEffect, GameEvent, GameOutcome,
+    GameSnapshotEvent, GameState, GameStateSnapshot, HiddenSlot, HintAction, PlayerAction,
+    PlayerIndex, SlotIndex,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -30,12 +32,14 @@ pub enum HanabiGame {
         session_id: String,
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
+        log: Vec<GameSnapshotEvent>,
     },
     Ended {
         session_id: String,
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
         revealed_game_state: GameState,
+        log: Vec<GameSnapshotEvent>,
     },
 }
 
@@ -208,8 +212,7 @@ pub fn process_app_action(
 pub struct GameLog {
     pub config: GameConfig,
     pub initial: GameState,
-    pub log: Vec<(PlayerAction, GameState)>,
-    pub history: Vec<GameEvent>,
+    pub log: Vec<(PlayerIndex, PlayerAction, Vec<GameEffect>, GameState)>,
 }
 
 impl GameLog {
@@ -218,34 +221,31 @@ impl GameLog {
             config: config.clone(),
             initial: GameState::start_with_seed::<R>(&config).unwrap(),
             log: vec![],
-            history: vec![],
         }
     }
 
     pub fn log<'a>(&'a mut self, action: PlayerAction) -> Result<&'a GameState, String> {
         let mut new_game_state = self.current_game_state().clone();
+        let current_player_index = new_game_state.current_player_index();
 
         let effects = new_game_state.play(action.clone())?;
-
-        self.history.push(GameEvent::PlayerAction {
-            player_index: new_game_state.current_player_index(),
-            action: action.clone(),
-            effects: effects.clone(),
-        });
+        let logged_effects = effects.clone();
 
         new_game_state.run_effects(effects)?;
-        self.log.push((action, new_game_state));
 
-        if let Some(outcome) = self.current_game_state().outcome.clone() {
-            self.history.push(GameEvent::GameOver(outcome.clone()));
-        }
+        self.log.push((
+            current_player_index,
+            action,
+            logged_effects,
+            new_game_state.clone(),
+        ));
 
-        Ok(&self.log.last().unwrap().1)
+        Ok(&self.log.last().unwrap().3)
     }
 
     pub fn current_game_state(&self) -> GameState {
         match self.log.last() {
-            Some((_index, game)) => game.clone(),
+            Some((_index, _action, _effects, game)) => game.clone(),
             None => self.initial.clone(),
         }
     }
@@ -254,15 +254,39 @@ impl GameLog {
         self.log.pop();
     }
 
+    pub fn into_client_game_log(
+        &self,
+        client_player_index: PlayerIndex,
+        name: Vec<String>,
+    ) -> Vec<GameSnapshotEvent> {
+        self.log
+            .iter()
+            .map(|(log_player_index, action, effects, game_state)| {
+                let game_event = GameEvent::PlayerAction {
+                    player_index: *log_player_index,
+                    action: action.clone(),
+                    effects: effects.clone(),
+                };
+                GameSnapshotEvent {
+                    event: game_event,
+                    snapshot: self.into_client_game_state(
+                        game_state.clone(),
+                        client_player_index,
+                        name.clone(),
+                    ),
+                }
+            })
+            .collect_vec()
+    }
+
     pub fn into_client_game_state(
         &self,
-        player: PlayerIndex,
+        game_state: GameState,
+        client_player_index: PlayerIndex,
         name: Vec<String>,
     ) -> GameStateSnapshot {
-        let game_state = self.current_game_state();
         GameStateSnapshot {
-            log: self.history.clone(),
-            this_client_player_index: player,
+            this_client_player_index: client_player_index,
             draw_pile_count: game_state.draw_pile.len() as u8,
             played_cards: game_state.played_cards.clone(),
             discard_pile: game_state.discard_pile.clone(),
@@ -270,23 +294,26 @@ impl GameLog {
                 .players
                 .iter()
                 .enumerate()
-                .map(|(index, p)| match (index, player) {
-                    (index, PlayerIndex(player)) if index == player => ClientPlayerView::Me {
-                        name: name[index].clone(),
-                        hand: p
-                            .hand
-                            .iter()
-                            .map(|h| {
-                                h.as_ref().map(|s| HiddenSlot {
-                                    hints: s.hints.clone(),
+                .map(|(index, p)| {
+                    if PlayerIndex(index) == client_player_index {
+                        ClientPlayerView::Me {
+                            name: name[index].clone(),
+                            hand: p
+                                .hand
+                                .iter()
+                                .map(|h| {
+                                    h.as_ref().map(|s| HiddenSlot {
+                                        hints: s.hints.clone(),
+                                    })
                                 })
-                            })
-                            .collect(),
-                    },
-                    _ => ClientPlayerView::Teammate {
-                        name: name[index].clone(),
-                        hand: p.hand.clone(),
-                    },
+                                .collect(),
+                        }
+                    } else {
+                        ClientPlayerView::Teammate {
+                            name: name[index].clone(),
+                            hand: p.hand.clone(),
+                        }
+                    }
                 })
                 .collect(),
             remaining_bomb_count: game_state.remaining_bomb_count,
