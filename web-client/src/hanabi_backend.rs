@@ -1,4 +1,4 @@
-//! This module provides the `RataguiBackend` implementation for the [`Backend`] trait.
+//! This module provides the `HanabiBackend` implementation for the [`Backend`] trait.
 //! It is used in the integration tests to verify the correctness of the library.
 
 use egui::epaint::{
@@ -19,13 +19,13 @@ use ratatui::{
     layout::{Rect, Size},
 };
 
-///The RataguiBackend is the widget+backend itself , from which you can make a ratatui terminal ,
+///The HanabiBackend is the widget+backend itself , from which you can make a ratatui terminal ,
 /// then you can do ui.add(terminal.backend_mut()) inside an egui context    .
-/// Spawn with RataguiBackend::new() or RataguiBackend::new_with_fonts()   .
+/// Spawn with HanabiBackend::new() or HanabiBackend::new_with_fonts()   .
 /// See the hello_world_web example for custom font usage
 #[derive(Debug, Clone, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct HanabiRatatuiBackend {
+pub struct HanabiBackend {
     width: u16,
     buffer: Buffer,
     height: u16,
@@ -40,7 +40,7 @@ pub struct HanabiRatatuiBackend {
     blinking_slow: bool,
     blinking_fast: bool,
 }
-impl egui::Widget for &mut HanabiRatatuiBackend {
+impl egui::Widget for &mut HanabiBackend {
     fn ui(self, ui: &mut Ui) -> Response {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -71,29 +71,32 @@ impl egui::Widget for &mut HanabiRatatuiBackend {
         let char_height = ui.fonts(|fx| fx.row_height(&self.regular_font));
         let char_width = ui.fonts(|fx| self.get_font_width(fx));
 
-        let available_chars_width = self.buffer.area.width as u16;
-        let available_chars_height = self.buffer.area.height as u16;
+        let available_chars_width = (av_width / (char_width)) as u16;
+        let available_chars_height = (av_height / (char_height)) as u16;
         let cur_size = self.size().expect("COULD NOT GET CURRENT BACKEND SIZE");
 
         if (cur_size.width != available_chars_width) || (cur_size.height != available_chars_height)
         {
-            //self.resize(available_chars_width, available_chars_height);
+            self.resize(available_chars_width, available_chars_height);
         }
         let cur_buf = self.buffer();
 
         let singular_wrapping = TextWrapping {
-            max_width: INFINITY,
-            max_rows: 1,
-            break_anywhere: true,
+            max_width: f32::INFINITY,
+            max_rows: cur_size.height as usize,
+            break_anywhere: false,
             overflow_character: None,
         };
 
+        let mut job = LayoutJob {
+            wrap: singular_wrapping.to_owned(),
+            break_on_newline: true,
+
+            //       halign: egui::Align::Min,
+            ..Default::default()
+        };
+
         for y in 0..available_chars_height {
-            let mut job = LayoutJob {
-                wrap: singular_wrapping.to_owned(),
-                //       halign: egui::Align::Min,
-                ..Default::default()
-            };
             for x in 0..available_chars_width {
                 let cur_cell = cur_buf.get(x, y);
 
@@ -117,8 +120,8 @@ impl egui::Widget for &mut HanabiRatatuiBackend {
                     self.regular_font.to_owned()
                 };
 
-                let mut tf_fg_color = HanabiRatatuiBackend::rat_to_egui_color(&cur_cell.fg, true);
-                let mut tf_bg_color = HanabiRatatuiBackend::rat_to_egui_color(&cur_cell.bg, false);
+                let mut tf_fg_color = HanabiBackend::rat_to_egui_color(&cur_cell.fg, true);
+                let mut tf_bg_color = HanabiBackend::rat_to_egui_color(&cur_cell.bg, false);
 
                 if is_slowblink {
                     if self.blinking_slow {
@@ -171,22 +174,22 @@ impl egui::Widget for &mut HanabiRatatuiBackend {
                 job.append(cur_cell.symbol(), 0.0, tf.clone());
 
                 if x == (available_chars_width - 1) {
-                    let end = ui.add(Label::new(job.clone()));
+                    // let end = ui.add(Label::new(job.clone()));
                     if y == (available_chars_height - 1) {
-                        return end;
+                        // return end;
+                    } else {
+                        job.append("\n", 0.0, tf.clone());
                     }
                 }
             }
         }
 
-        let emd = Label::new("IF YOU SEE THIS  THAT IS AN ERROR");
-
-        ui.add(emd)
+        ui.add(Label::new(job.clone()))
     }
 }
 
-impl HanabiRatatuiBackend {
-    /// Creates a new `RataguiBackend` with the specified width and height.
+impl HanabiBackend {
+    /// Creates a new `HanabiBackend` with the specified width and height.
     pub fn new(width: u16, height: u16) -> Self {
         Self {
             width,
@@ -241,12 +244,12 @@ impl HanabiRatatuiBackend {
         self.bolditalic_font = FontId::new(desired as f32, self.bolditalic_font.family.to_owned());
     }
 
-    /// Returns a reference to the internal buffer of the `RataguiBackend`.
+    /// Returns a reference to the internal buffer of the `HanabiBackend`.
     pub const fn buffer(&self) -> &Buffer {
         &self.buffer
     }
 
-    /// Resizes the `RataguiBackend` to the specified width and height.
+    /// Resizes the `HanabiBackend` to the specified width and height.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.buffer.resize(Rect::new(0, 0, width, height));
         self.width = width;
@@ -292,7 +295,7 @@ impl HanabiRatatuiBackend {
     }
 }
 
-impl Backend for HanabiRatatuiBackend {
+impl Backend for HanabiBackend {
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,

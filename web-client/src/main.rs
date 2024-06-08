@@ -6,6 +6,7 @@ use egui::FontId;
 use egui::OpenUrl;
 use egui::Pos2;
 use egui::Vec2;
+use hanabi_backend::HanabiBackend;
 use ratatui::layout::Position;
 use ratatui::prelude::Terminal;
 use ratatui::widgets::ScrollDirection;
@@ -19,6 +20,7 @@ use shared::client_logic::*;
 use wasm_bindgen::prelude::*;
 use web_sys::{ErrorEvent, MessageEvent, WebSocket};
 mod input;
+mod hanabi_backend;
 
 use input::key_code_to_char;
 
@@ -50,7 +52,7 @@ fn main() -> eframe::Result<()> {
 }
 
 pub struct HelloApp {
-    terminal: Terminal<RataguiBackend>,
+    terminal: Terminal<HanabiBackend>,
     tui_state: TuiState,
     send_to_server: mpsc::Sender<ClientToServerMessage>,
     send_to_server_queue: mpsc::Receiver<ClientToServerMessage>,
@@ -89,7 +91,7 @@ impl Default for HelloApp {
             mpsc::channel::<ServerToClientMessage>();
 
         //Creating the Ratatui backend/ Egui widget here
-        let backend = RataguiBackend::new(100, 100);
+        let backend = HanabiBackend::new(100, 100);
         let terminal = Terminal::new(backend).unwrap();
         Self {
             terminal: terminal,
@@ -199,7 +201,7 @@ impl NewCC for HelloApp {
         setup_custom_fonts(&cc.egui_ctx);
 
         //Creating the Ratatui backend/ Egui widget here
-        let mut backend = RataguiBackend::new_with_fonts(
+        let mut backend = HanabiBackend::new_with_fonts(
             100,
             100,
             "JetBrainsMonoNerdFont-Regular".into(),
@@ -260,6 +262,7 @@ impl eframe::App for HelloApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //call repaint here so that app runs continuously, remove if you dont need that
         ctx.request_repaint();
+
 
         let main_font = FontId::new(
             self.terminal.backend().get_font_size() as f32,
