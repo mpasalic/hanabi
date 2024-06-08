@@ -261,6 +261,8 @@ impl HanabiApp {
     ) -> Node<'static> {
         self.game_ui(
             GameProps {
+                game_state_index: 0,
+                game_states_count: 0,
                 board_render_state: BoardProps {
                     highest_played_card_for_suit: HashMap::new(),
                     discards: vec![],
@@ -310,9 +312,6 @@ impl HanabiApp {
         legend: Vec<LegendItem>,
     ) -> Node<'static> {
         use taffy::prelude::*;
-
-        let max_logs = game_props.game_log.len();
-        let log_selected = self.game_state_selection.min(max_logs - 1);
 
         GridStack::new().children(
             LayoutStyle {
@@ -417,25 +416,29 @@ impl HanabiApp {
 
                         justify_content: Some(JustifyContent::Center),
                         gap: Size {
-                            width: length(1.),
+                            width: length(0.),
                             height: length(0.),
                         },
                         ..HStack::default_layout()
                     })
+                    .child(
+                        Span::from("History")
+                            .style(default_style().bg(SELECTION_COLOR).fg(Color::White)),
+                    )
                     .childs(
                         [
-                            if log_selected < max_logs - 1 {
+                            if game_props.game_state_index + 1 < game_props.game_states_count {
                                 Some(LegendItem {
-                                    desc: "Prev".to_string(),
+                                    desc: "".to_string(),
                                     key_code: KeyCode::Up,
                                     action: AppAction::AdjustCurrentState(1),
                                 })
                             } else {
                                 None
                             },
-                            if log_selected > 0 {
+                            if game_props.game_state_index > 0 {
                                 Some(LegendItem {
-                                    desc: "Next".to_string(),
+                                    desc: "".to_string(),
                                     key_code: KeyCode::Down,
                                     action: AppAction::AdjustCurrentState(-1),
                                 })
@@ -1015,8 +1018,12 @@ fn generate_game_log(
             } => [
                 Span::raw("Game Over: "),
                 match outcome {
-                    GameOutcome::Win => Span::raw("Victory!"),
-                    GameOutcome::Fail { score } => Span::raw(format!("Defeat (score = {})", score)),
+                    GameOutcome::Win => Span::raw("Victory!").fg(NORMAL_TEXT).bold(),
+                    GameOutcome::Fail { score } => {
+                        Span::raw(format!("Defeat :( (score = {})", score))
+                            .fg(NORMAL_TEXT)
+                            .bold()
+                    }
                 },
             ]
             .to_vec(),
@@ -1129,13 +1136,13 @@ fn game_action_item_tree(item: LegendItem) -> Node<'static> {
             desc,
             key_code: KeyCode::Up,
             ..
-        } => format!("{} [{}]", desc, "\u{f062} "),
+        } => format!("{} [{}]", desc, "\u{eaa1} "),
 
         LegendItem {
             desc,
             key_code: KeyCode::Down,
             ..
-        } => format!("{} [{}]", desc, "\u{f063} "),
+        } => format!("{} [{}]", desc, "\u{ea9a} "),
 
         _ => panic!("Unknown keycode"),
     };
@@ -1146,7 +1153,13 @@ fn game_action_item_tree(item: LegendItem) -> Node<'static> {
         .keybinding(item.key_code, item.action)
 }
 
-fn board_node_props(game_state_snapshot: &GameStateSnapshot) -> BoardProps {
+fn board_node_props(
+    played_cards: &Vec<Card>,
+    discard_pile: &Vec<Card>,
+    draw_pile_count: u8,
+    remaining_hint_count: u8,
+    remaining_bomb_count: u8,
+) -> BoardProps {
     let all_suits = [
         CardSuit::Blue,
         CardSuit::Green,
@@ -1159,8 +1172,7 @@ fn board_node_props(game_state_snapshot: &GameStateSnapshot) -> BoardProps {
         .iter()
         .enumerate()
         .map(|(_, &cur_suit)| {
-            let mut card_faces: Vec<_> = game_state_snapshot
-                .played_cards
+            let mut card_faces: Vec<_> = played_cards
                 .iter()
                 .filter_map(|c| match c {
                     &Card { suit, face } if suit == cur_suit => Some(face),
@@ -1181,10 +1193,10 @@ fn board_node_props(game_state_snapshot: &GameStateSnapshot) -> BoardProps {
                 Some((cur_suit, highest_face?))
             })
             .collect::<HashMap<CardSuit, CardFace>>(),
-        discards: game_state_snapshot.discard_pile.clone(),
-        draw_remaining: game_state_snapshot.draw_pile_count as usize,
-        hints_remaining: game_state_snapshot.remaining_hint_count as usize,
-        fuse_remaining: game_state_snapshot.remaining_bomb_count as usize,
+        discards: discard_pile.clone(),
+        draw_remaining: draw_pile_count as usize,
+        hints_remaining: remaining_hint_count as usize,
+        fuse_remaining: remaining_bomb_count as usize,
     }
 }
 
@@ -1287,6 +1299,8 @@ struct GameProps {
     board_render_state: BoardProps,
     players: Vec<PlayerNodeProps>,
     game_log: Vec<Line<'static>>,
+    game_states_count: usize,
+    game_state_index: usize,
 }
 
 impl From<HanabiApp> for GameProps {
@@ -1314,13 +1328,21 @@ impl From<HanabiApp> for GameProps {
                         };
 
                     GameProps {
+                        game_states_count: log.len(),
+                        game_state_index: app_state.game_state_selection,
                         game_log: generate_game_log(
                             game_state,
                             log,
                             players,
                             selected_game_state_index,
                         ),
-                        board_render_state: board_node_props(selected_game_state),
+                        board_render_state: board_node_props(
+                            &selected_game_state.played_cards,
+                            &selected_game_state.discard_pile,
+                            selected_game_state.draw_pile_count,
+                            selected_game_state.remaining_hint_count,
+                            selected_game_state.remaining_bomb_count,
+                        ),
                         players: (0..players.len())
                             .into_iter()
                             .map(|player_index| {
@@ -1367,47 +1389,70 @@ impl From<HanabiApp> for GameProps {
                 HanabiGame::Ended {
                     players,
                     game_state,
-                    revealed_game_state,
-                    log,
+                    revealed_game_log,
                     ..
-                } => GameProps {
-                    game_log: generate_game_log(
-                        game_state,
-                        log,
-                        players,
-                        if app_state.game_state_selection > 0 {
-                            Some(log.len() - app_state.game_state_selection - 1)
+                } => {
+                    let (selected_game_state_index, selected_game_state) =
+                        if app_state.game_state_selection == 0 {
+                            (None, &revealed_game_log.current_game_state())
                         } else {
-                            None
-                        },
-                    ),
-                    board_render_state: board_node_props(game_state),
-                    players: (0..players.len())
-                        .into_iter()
-                        .map(|player_index| {
-                            let player_state = match (
-                                game_state.current_turn_player_index,
-                                &app_state.command.current_command,
-                            ) {
-                                (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                    PlayerRenderState::CurrentTurn
-                                }
+                            let max_log = revealed_game_log.log.len();
+                            revealed_game_log
+                                .log
+                                .iter()
+                                .enumerate()
+                                .rev()
+                                .map(|(i, (_, _, _, game_state))| (Some(i), game_state))
+                                .nth(app_state.game_state_selection.min(max_log - 1))
+                                .unwrap()
+                        };
 
-                                _ => PlayerRenderState::Default,
-                            };
+                    GameProps {
+                        game_states_count: revealed_game_log.log.len(),
+                        game_state_index: app_state.game_state_selection,
+                        game_log: generate_game_log(
+                            game_state,
+                            &revealed_game_log.into_client_game_log(
+                                game_state.this_client_player_index,
+                                players.iter().map(|p| p.name.clone()).collect(),
+                            ),
+                            players,
+                            selected_game_state_index,
+                        ),
+                        board_render_state: board_node_props(
+                            &selected_game_state.played_cards,
+                            &selected_game_state.discard_pile,
+                            selected_game_state.draw_pile.len() as u8,
+                            selected_game_state.remaining_hint_count,
+                            selected_game_state.remaining_bomb_count,
+                        ),
+                        players: (0..players.len())
+                            .into_iter()
+                            .map(|player_index| {
+                                let player_state = match (
+                                    game_state.current_turn_player_index,
+                                    &app_state.command.current_command,
+                                ) {
+                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
+                                        PlayerRenderState::CurrentTurn
+                                    }
 
-                            player_node_props(
-                                players[player_index].name.clone(),
-                                revealed_game_state.players[player_index]
-                                    .hand
-                                    .iter()
-                                    .map(|h| h.clone().map(|c| (Some(c.card), c.hints.clone())))
-                                    .collect(),
-                                player_state,
-                            )
-                        })
-                        .collect(),
-                },
+                                    _ => PlayerRenderState::Default,
+                                };
+
+                                player_node_props(
+                                    players[player_index].name.clone(),
+                                    selected_game_state.players[player_index]
+                                        .hand
+                                        .iter()
+                                        .map(|h| h.clone().map(|c| (Some(c.card), c.hints.clone())))
+                                        .collect(),
+                                    player_state,
+                                )
+                            })
+                            .collect(),
+                    }
+                }
             },
         }
     }

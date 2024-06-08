@@ -98,13 +98,7 @@ impl GameLobby {
                             PlayerIndex(index),
                             self.players.iter().map(|p| p.name.clone()).collect(),
                         ),
-                        revealed_game_state: game_log.current_game_state().clone(),
-                        log: game_log
-                            .into_client_game_log(
-                                PlayerIndex(index),
-                                self.players.iter().map(|p| p.name.clone()).collect(),
-                            )
-                            .clone(),
+                        revealed_game_log: game_log.clone(),
                     },
                 },
             ));
@@ -296,25 +290,6 @@ impl LobbyServer {
                     }
                     game_lobby.update_players();
                 });
-
-            match game_lobby {
-                Entry::Occupied(game_lobby_entry) => {
-                    let game_lobby = game_lobby_entry.get();
-
-                    let all_disconnected = game_lobby.players.iter().all(|p| match p.connection {
-                        ConnectionState::Disconnected => true,
-                        _ => false,
-                    });
-
-                    match (game_lobby.status.clone(), all_disconnected) {
-                        (GameLobbyStatus::Ended(_), true) => {
-                            game_lobby_entry.remove();
-                        }
-                        _ => {}
-                    }
-                }
-                Entry::Vacant(_) => {}
-            }
         }
     }
 

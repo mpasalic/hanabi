@@ -1,3 +1,5 @@
+use std::iter;
+
 use itertools::Itertools;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -38,8 +40,7 @@ pub enum HanabiGame {
         session_id: String,
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
-        revealed_game_state: GameState,
-        log: Vec<GameSnapshotEvent>,
+        revealed_game_log: GameLog,
     },
 }
 
@@ -208,7 +209,7 @@ pub fn process_app_action(
     )
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GameLog {
     pub config: GameConfig,
     pub initial: GameState,
@@ -276,6 +277,22 @@ impl GameLog {
                     ),
                 }
             })
+            .chain(
+                iter::once(self.current_game_state()).filter_map(|game_state| {
+                    if game_state.outcome.is_some() {
+                        Some(GameSnapshotEvent {
+                            event: GameEvent::GameOver(game_state.outcome.clone().unwrap()),
+                            snapshot: self.into_client_game_state(
+                                game_state.clone(),
+                                client_player_index,
+                                name.clone(),
+                            ),
+                        })
+                    } else {
+                        None
+                    }
+                }),
+            )
             .collect_vec()
     }
 
