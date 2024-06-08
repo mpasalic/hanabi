@@ -13,7 +13,9 @@ pub enum CardFace {
     Five,
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash, Enum, EnumIter)]
+#[derive(
+    Serialize, Deserialize, Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Enum, EnumIter,
+)]
 pub enum CardSuit {
     Red,
     Green,
@@ -27,7 +29,7 @@ pub struct PlayerIndex(pub usize);
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct FromPlayerIndex(pub usize);
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Copy, Clone)]
 pub struct SlotIndex(pub usize);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -40,6 +42,23 @@ pub struct GameConfig {
     pub seed: u64,
 }
 
+impl GameConfig {
+    pub fn new(num_players: usize, seed: u64) -> Self {
+        Self {
+            num_players,
+            hand_size: match num_players {
+                2 | 3 => 5,
+                4 | 5 => 4,
+                _ => 4, // error?
+            },
+            num_fuses: 3,
+            num_hints: 8,
+            starting_player: PlayerIndex(0),
+            seed,
+        }
+    }
+}
+
 // TODO Maybe use something like this for clarity
 // #[derive(Serialize, Deserialize, Debug, Clone)]
 // pub enum GameStatus {
@@ -49,7 +68,7 @@ pub struct GameConfig {
 //     Finished(GameOutcome),
 // }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct GameState {
     pub draw_pile: Vec<Card>, // TODO: maybe convert to a board with a draw pile and discard pile and organized sets
     pub played_cards: Vec<Card>, // TODO: organize by suit sets
@@ -61,7 +80,6 @@ pub struct GameState {
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
     pub history: Vec<GameEffect>,
-    pub game_config: GameConfig,
     // pub status: GameStatus,
 }
 
@@ -142,18 +160,19 @@ pub enum PlayedCardResult {
     Rejected,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameEffect {
     DrawCard(PlayerIndex, SlotIndex),
     RemoveCard(PlayerIndex, SlotIndex),
-    AddToDiscrard(Card),
+    AddToDiscard(Card),
     PlaceOnBoard(Card),
     HintCard(PlayerIndex, SlotIndex, Hint),
     DecHint,
     IncHint,
     BurnFuse,
-    NextTurn(PlayerIndex),
+    NextTurn(u8),
     MarkLastTurn(u8),
+    LastTurn,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -175,12 +194,12 @@ pub struct HiddenSlot {
     pub hints: Vec<Hint>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Player {
     pub hand: Vec<Option<Slot>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GameOutcome {
     Win,
     Fail { score: usize },

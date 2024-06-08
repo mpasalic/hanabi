@@ -1,3 +1,5 @@
+use std::iter;
+
 use itertools::Itertools;
 use rand::{Rng, SeedableRng};
 use strum::IntoEnumIterator;
@@ -8,7 +10,7 @@ use crate::model::{
 };
 
 impl GameState {
-    pub fn start<R: SeedableRng + Rng>(config: &GameConfig) -> Result<GameState, String> {
+    pub fn start_with_seed<R: SeedableRng + Rng>(config: &GameConfig) -> Result<GameState, String> {
         let mut game = GameState {
             draw_pile: new_seeded_deck::<R>(config.seed),
             discard_pile: Vec::new(),
@@ -25,7 +27,41 @@ impl GameState {
             turn: config.starting_player.0 as u8,
             outcome: None,
             history: Vec::new(),
-            game_config: config.clone(),
+        };
+
+        use GameEffect::*;
+        let init_effects = (0..config.hand_size)
+            .flat_map(move |slot_index| {
+                (0..config.num_players).map(move |player_index| {
+                    DrawCard(PlayerIndex(player_index), SlotIndex(slot_index))
+                })
+            })
+            .collect();
+
+        game.run_effects(init_effects)?;
+        return Ok(game);
+    }
+
+    pub fn start_with_deck<R: SeedableRng + Rng>(
+        config: &GameConfig,
+        deck: Vec<Card>,
+    ) -> Result<GameState, String> {
+        let mut game = GameState {
+            draw_pile: deck,
+            discard_pile: Vec::new(),
+            last_turn: None,
+            played_cards: Vec::new(),
+            players: (0..config.num_players)
+                .into_iter()
+                .map(|_index| Player {
+                    hand: (0..config.hand_size).map(|_slot_index| None).collect_vec(),
+                })
+                .collect(),
+            remaining_bomb_count: config.num_fuses,
+            remaining_hint_count: config.num_hints,
+            turn: config.starting_player.0 as u8,
+            outcome: None,
+            history: Vec::new(),
         };
 
         use GameEffect::*;
@@ -53,86 +89,92 @@ impl GameState {
             .players
             .get(self.turn as usize % self.players.len())
             .ok_or_else(|| "Invalid player index".to_string())?;
-        let next_turn = PlayerIndex((self.turn as usize + 1) % self.players.len());
 
         fn draw_card_effect(
             game_state: &GameState,
             player_index: PlayerIndex,
             slot_index: SlotIndex,
-        ) -> Vec<GameEffect> {
+        ) -> impl Iterator<Item = GameEffect> {
             match game_state {
                 GameState { draw_pile, .. } if draw_pile.len() > 1 => {
-                    vec![GameEffect::DrawCard(player_index, slot_index)]
+                    vec![GameEffect::DrawCard(player_index, slot_index)].into_iter()
                 }
 
                 GameState {
                     draw_pile, turn, ..
-                } if draw_pile.len() == 1 => {
-                    vec![
-                        GameEffect::DrawCard(player_index, slot_index),
-                        GameEffect::MarkLastTurn(*turn + game_state.players.len() as u8),
-                    ]
-                }
+                } if draw_pile.len() == 1 => vec![
+                    GameEffect::DrawCard(player_index, slot_index),
+                    GameEffect::MarkLastTurn(*turn + game_state.players.len() as u8),
+                ]
+                .into_iter(),
 
-                _ => vec![],
+                _ => vec![].into_iter(),
+            }
+        }
+
+        fn next_turn_effect(game_state: &GameState) -> GameEffect {
+            match (game_state.turn, game_state.last_turn) {
+                (current_turn, Some(last_turn)) if current_turn >= last_turn => {
+                    GameEffect::LastTurn
+                }
+                _ => GameEffect::NextTurn(game_state.turn + 1),
             }
         }
 
         match action {
-            PlayerAction::PlayCard(SlotIndex(index)) => {
+            PlayerAction::PlayCard(SlotIndex(slot_index)) => {
                 let slot = current_player
                     .hand
-                    .get(index)
+                    .get(slot_index)
                     .and_then(|s| s.as_ref().map(|s| s))
                     .ok_or_else(|| "Invalid slot index".to_string())?;
                 let play_result = self.check_play(&slot.card);
 
-                return Ok([
-                    match play_result {
-                        PlayedCardResult::Accepted => {
-                            vec![
-                                RemoveCard(player_index, SlotIndex(index)),
-                                PlaceOnBoard(slot.card),
-                            ]
-                        }
-                        PlayedCardResult::CompletedSet => {
-                            vec![
-                                RemoveCard(player_index, SlotIndex(index)),
-                                PlaceOnBoard(slot.card),
-                                DrawCard(player_index, SlotIndex(index)),
-                                IncHint,
-                            ]
-                        }
-                        PlayedCardResult::Rejected => {
-                            vec![
-                                RemoveCard(player_index, SlotIndex(index)),
-                                AddToDiscrard(slot.card),
-                                DrawCard(player_index, SlotIndex(index)),
-                                BurnFuse,
-                            ]
-                        }
-                    },
-                    draw_card_effect(self, player_index, SlotIndex(index)),
-                    vec![NextTurn(next_turn)],
-                ]
-                .into_iter()
-                .flatten()
-                .collect_vec());
+                return Ok(match play_result {
+                    PlayedCardResult::Accepted => [
+                        RemoveCard(player_index, SlotIndex(slot_index)),
+                        PlaceOnBoard(slot.card),
+                    ]
+                    .into_iter()
+                    .chain(draw_card_effect(self, player_index, SlotIndex(slot_index)))
+                    .chain(iter::once(next_turn_effect(self)))
+                    .collect_vec(),
+                    PlayedCardResult::CompletedSet => [
+                        RemoveCard(player_index, SlotIndex(slot_index)),
+                        PlaceOnBoard(slot.card),
+                        IncHint,
+                    ]
+                    .into_iter()
+                    .chain(draw_card_effect(self, player_index, SlotIndex(slot_index)))
+                    .chain(iter::once(next_turn_effect(self)))
+                    .collect_vec(),
+                    PlayedCardResult::Rejected => [
+                        RemoveCard(player_index, SlotIndex(slot_index)),
+                        AddToDiscard(slot.card),
+                        BurnFuse,
+                    ]
+                    .into_iter()
+                    .chain(draw_card_effect(self, player_index, SlotIndex(slot_index)))
+                    .chain(iter::once(next_turn_effect(self)))
+                    .collect_vec(),
+                });
             }
-            PlayerAction::DiscardCard(SlotIndex(index)) => {
+            PlayerAction::DiscardCard(SlotIndex(slot_index)) => {
                 let slot = current_player
                     .hand
-                    .get(index)
+                    .get(slot_index)
                     .and_then(|s| s.as_ref().map(|s| s))
                     .ok_or_else(|| "Invalid slot index".to_string())?;
 
-                return Ok(vec![
-                    RemoveCard(player_index, SlotIndex(index)),
-                    AddToDiscrard(slot.card),
-                    DrawCard(player_index, SlotIndex(index)),
+                return Ok([
+                    RemoveCard(player_index, SlotIndex(slot_index)),
+                    AddToDiscard(slot.card),
                     IncHint,
-                    NextTurn(next_turn),
-                ]);
+                ]
+                .into_iter()
+                .chain(draw_card_effect(self, player_index, SlotIndex(slot_index)))
+                .chain(iter::once(next_turn_effect(self)))
+                .collect_vec());
             }
             PlayerAction::GiveHint(PlayerIndex(hinted_player_index), hint_type) => {
                 use HintAction::*;
@@ -184,7 +226,7 @@ impl GameState {
                         }
                     })
                     .collect();
-                let hinted_effects = vec![DecHint, NextTurn(next_turn)];
+                let hinted_effects = vec![DecHint, next_turn_effect(self)];
 
                 return Ok(hints
                     .into_iter()
@@ -272,51 +314,36 @@ impl GameState {
     pub fn run_effect(&mut self, effect: GameEffect) -> Result<(), String> {
         match effect {
             GameEffect::DrawCard(PlayerIndex(player_index), SlotIndex(slot_index)) => {
-                let player = self
-                    .players
-                    .get_mut(player_index)
-                    .ok_or_else(|| "Invalid current player")?;
-                let drawed_card = self.draw_pile.pop();
-
-                if let Some(card) = drawed_card {
-                    player
-                        .hand
-                        .get_mut(slot_index)
-                        .ok_or_else(|| "Invalid slot index")?
-                        .replace(Slot {
-                            card: card,
-                            hints: Vec::new(),
-                        });
-                }
+                assert!(
+                    self.players[player_index].hand[slot_index].is_none(),
+                    "Slot is not empty"
+                );
+                self.players[player_index].hand[slot_index] = Some(Slot {
+                    card: self
+                        .draw_pile
+                        .pop()
+                        .ok_or_else(|| "Logic error: No more cards to draw")?,
+                    hints: vec![],
+                });
             }
             GameEffect::MarkLastTurn(turn_count) => {
                 self.last_turn = Some(turn_count);
             }
             GameEffect::RemoveCard(PlayerIndex(player_index), SlotIndex(slot_index)) => {
-                let player = self
-                    .players
-                    .get_mut(player_index)
-                    .ok_or_else(|| "Invalid current player")?;
-                player.hand[slot_index] = None;
+                self.players[player_index].hand[slot_index] = None;
             }
-            GameEffect::AddToDiscrard(card) => {
+            GameEffect::AddToDiscard(card) => {
                 self.discard_pile.push(card);
             }
             GameEffect::PlaceOnBoard(card) => {
                 self.played_cards.push(card);
             }
             GameEffect::HintCard(PlayerIndex(player_index), SlotIndex(slot_index), hint) => {
-                let player = self
-                    .players
-                    .get_mut(player_index)
-                    .ok_or_else(|| "Invalid current player")?;
-                let slot = player
-                    .hand
-                    .get_mut(slot_index)
-                    .ok_or_else(|| "Invalid slot index")?;
-                if let Some(slot) = slot {
-                    slot.hints.push(hint);
-                }
+                self.players[player_index].hand[slot_index]
+                    .as_mut()
+                    .ok_or_else(|| "No card to hint in slot index")?
+                    .hints
+                    .push(hint);
             }
             GameEffect::DecHint => {
                 self.remaining_hint_count = self.remaining_hint_count - 1;
@@ -329,6 +356,11 @@ impl GameState {
             }
             GameEffect::NextTurn(_) => {
                 self.turn = self.turn + 1;
+            }
+            GameEffect::LastTurn => {
+                self.turn = self.turn + 1;
+                self.outcome = self.check_game_outcome();
+                // TODO implement (noop for now)
             }
         }
 
@@ -423,6 +455,7 @@ pub fn new_seeded_deck<R: SeedableRng + Rng>(seed: u64) -> Vec<Card> {
 mod tests {
 
     use assert_matches::assert_matches;
+    use rand::rngs::StdRng;
 
     use super::*;
 
@@ -431,6 +464,802 @@ mod tests {
 
     fn card(face: CardFace, suit: CardSuit) -> Card {
         Card { face, suit }
+    }
+
+    fn card_slot(face: CardFace, suit: CardSuit) -> Option<Slot> {
+        Some(Slot {
+            card: card(face, suit),
+            hints: vec![],
+        })
+    }
+
+    fn hand(cards: &[Option<Card>]) -> Vec<Option<Slot>> {
+        cards
+            .iter()
+            .map(|card| {
+                card.map(|card| Slot {
+                    card,
+                    hints: vec![],
+                })
+            })
+            .collect()
+    }
+
+    fn player(hand: &[Option<Slot>]) -> Player {
+        Player {
+            hand: hand.to_vec(),
+        }
+    }
+
+    #[test]
+    fn test_game_state_start_2_players() {
+        let game_state = GameState::start_with_seed::<StdRng>(&GameConfig::new(2, 0)).unwrap();
+
+        assert_matches!(
+            &game_state.players.as_slice(),
+            &[Player {
+                        hand: player_1_hand
+                    },
+                    Player {
+                        hand: player_2_hand
+                    },
+                ] if player_1_hand.len() == 5 && player_2_hand.len() == 5
+        );
+    }
+
+    #[test]
+    fn test_game_state_start_4_players() {
+        let game_state = GameState::start_with_seed::<StdRng>(&GameConfig::new(4, 0)).unwrap();
+
+        assert_matches!(
+            &game_state.players.as_slice(),
+            &[
+                Player {
+                    hand: player_1_hand
+                },
+                Player {
+                    hand: player_2_hand
+                },
+                Player {
+                    hand: player_3_hand
+                },
+                Player {
+                    hand: player_4_hand
+                },
+            ] => {
+                assert_matches!(player_1_hand.len(), 4);
+                assert_matches!(player_2_hand.len(), 4);
+                assert_matches!(player_3_hand.len(), 4);
+                assert_matches!(player_4_hand.len(), 4);
+            }
+        );
+    }
+
+    #[test]
+    fn test_remove_card_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(Four, Blue), card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 0,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects(vec![GameEffect::RemoveCard(PlayerIndex(0), SlotIndex(0))])
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                players: vec![
+                    player(&[None, card_slot(Five, Blue)]),
+                    player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+                ],
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_add_to_discard_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(Four, Blue), card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 0,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects(vec![GameEffect::AddToDiscard(card(One, Red))])
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                discard_pile: vec![card(One, Red)],
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_draw_card_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(Two, Red), card(Three, Red), card(One, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 0,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects(vec![GameEffect::DrawCard(PlayerIndex(0), SlotIndex(0))])
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                draw_pile: vec![card(Two, Red), card(Three, Red)],
+                players: vec![
+                    player(&[card_slot(One, Red), card_slot(Five, Blue)]),
+                    player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+                ],
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_dec_hint_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 0,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state.run_effects(vec![GameEffect::DecHint]).unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                remaining_hint_count: 7,
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_inc_hint_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 0,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state.run_effects(vec![GameEffect::IncHint]).unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                remaining_hint_count: 9,
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_burn_fuse_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 0,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects([GameEffect::BurnFuse].to_vec())
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                remaining_bomb_count: 2,
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_place_on_board_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 0,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects([GameEffect::PlaceOnBoard(card(One, Yellow))].to_vec())
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                played_cards: vec![card(One, Yellow)],
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_mark_last_turn_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects([GameEffect::MarkLastTurn(12)].to_vec())
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                last_turn: Some(12),
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_mark_next_turn_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects([GameEffect::NextTurn(11)].to_vec())
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                turn: 11,
+                ..game_state.clone()
+            }
+        );
+    }
+
+    #[test]
+    fn test_mark_hint_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[None, card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        game_state
+            .run_effects(
+                [GameEffect::HintCard(
+                    PlayerIndex(1),
+                    SlotIndex(1),
+                    Hint::IsFace(Five),
+                )]
+                .to_vec(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                players: [
+                    player(&[None, card_slot(Five, Blue)]),
+                    Player {
+                        hand: [
+                            card_slot(Four, Green),
+                            Some(Slot {
+                                card: card(Five, Green),
+                                hints: [Hint::IsFace(Five)].to_vec()
+                            })
+                        ]
+                        .to_vec(),
+                    }
+                ]
+                .to_vec(),
+                ..game_state.clone()
+            }
+        );
+    }
+
+    fn assert_vector_contains_eq(actual: Vec<GameEffect>, expected: Vec<GameEffect>) {
+        assert_eq!(
+            expected.len(),
+            actual.len(),
+            "Different length of effects,\nexpected:\n{:#?}\n actual:\n{:#?}",
+            expected,
+            actual
+        );
+        for effect in expected {
+            assert!(actual.contains(&effect), "{:?} not found", effect);
+        }
+    }
+
+    #[test]
+    fn test_plays_normal_card_action() {
+        let game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 1,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(1)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(1), SlotIndex(1)),
+                GameEffect::PlaceOnBoard(card(One, Yellow)),
+                GameEffect::DrawCard(PlayerIndex(1), SlotIndex(1)),
+                GameEffect::NextTurn(2),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_plays_card_last_turn_action() {
+        let game_state = GameState {
+            draw_pile: vec![],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 12,
+            last_turn: Some(12),
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(0)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(0), SlotIndex(0)),
+                GameEffect::PlaceOnBoard(card(One, Blue)),
+                GameEffect::LastTurn,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_plays_rejected_card_action() {
+        let game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 1,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(0)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(1), SlotIndex(0)),
+                GameEffect::AddToDiscard(card(Four, Green)),
+                GameEffect::DrawCard(PlayerIndex(1), SlotIndex(0)),
+                GameEffect::NextTurn(2),
+                GameEffect::BurnFuse,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_plays_completing_card_action() {
+        let game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Red)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(1)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::PlaceOnBoard(card(Five, Red)),
+                GameEffect::DrawCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::NextTurn(11),
+                GameEffect::IncHint,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_plays_completing_card_with_last_card_draw_action() {
+        let game_state = GameState {
+            draw_pile: vec![card(One, Red)],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Red)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::PlayCard(SlotIndex(1)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::PlaceOnBoard(card(Five, Red)),
+                GameEffect::DrawCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::NextTurn(11),
+                GameEffect::IncHint,
+                GameEffect::MarkLastTurn(12),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_discards_card_action() {
+        let game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Red)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::DiscardCard(SlotIndex(1)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::AddToDiscard(card(Five, Red)),
+                GameEffect::DrawCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::NextTurn(11),
+                GameEffect::IncHint,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_discards_card_no_draw_action() {
+        let game_state = GameState {
+            draw_pile: vec![],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Red)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: Some(12),
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::DiscardCard(SlotIndex(1)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::AddToDiscard(card(Five, Red)),
+                GameEffect::NextTurn(11),
+                GameEffect::IncHint,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_discards_card_with_last_card_draw_action() {
+        let game_state = GameState {
+            draw_pile: vec![card(One, Red)],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Red)]),
+                player(&[card_slot(Four, Green), card_slot(One, Yellow)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::DiscardCard(SlotIndex(1)));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::RemoveCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::AddToDiscard(card(Five, Red)),
+                GameEffect::DrawCard(PlayerIndex(0), SlotIndex(1)),
+                GameEffect::NextTurn(11),
+                GameEffect::IncHint,
+                GameEffect::MarkLastTurn(12),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_gives_face_hint_action() {
+        let game_state = GameState {
+            draw_pile: vec![],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[
+                    card_slot(One, Blue),
+                    card_slot(Five, Red),
+                    card_slot(Five, Blue),
+                    card_slot(Three, Blue),
+                ]),
+                player(&[
+                    card_slot(Four, Green),
+                    card_slot(Five, White),
+                    card_slot(Five, Green),
+                    card_slot(Three, Blue),
+                ]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: Some(12),
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::GiveHint(
+            PlayerIndex(1),
+            HintAction::SameFace(Five),
+        ));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(0), Hint::IsNotFace(Five)),
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(1), Hint::IsFace(Five)),
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(2), Hint::IsFace(Five)),
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(3), Hint::IsNotFace(Five)),
+                GameEffect::NextTurn(11),
+                GameEffect::DecHint,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_gives_suit_hint_action() {
+        let game_state = GameState {
+            draw_pile: vec![],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[
+                    card_slot(One, Blue),
+                    card_slot(Five, Red),
+                    card_slot(Five, Blue),
+                    card_slot(Three, Blue),
+                ]),
+                player(&[
+                    card_slot(Four, Green),
+                    card_slot(Five, White),
+                    card_slot(Five, Green),
+                    card_slot(Three, Blue),
+                ]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: Some(12),
+            outcome: None,
+            history: vec![],
+        };
+
+        let effects = game_state.play(PlayerAction::GiveHint(
+            PlayerIndex(1),
+            HintAction::SameSuit(Green),
+        ));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(0), Hint::IsSuit(Green)),
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(1), Hint::IsNotSuit(Green)),
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(2), Hint::IsSuit(Green)),
+                GameEffect::HintCard(PlayerIndex(1), SlotIndex(3), Hint::IsNotSuit(Green)),
+                GameEffect::NextTurn(11),
+                GameEffect::DecHint,
+            ],
+        );
     }
 
     #[test]
@@ -471,14 +1300,6 @@ mod tests {
             last_turn: None,
             outcome: None,
             history: vec![],
-            game_config: GameConfig {
-                num_players: 2,
-                hand_size: 2,
-                num_fuses: 3,
-                num_hints: 8,
-                starting_player: PlayerIndex(0),
-                seed: 0,
-            },
         };
 
         let action = PlayerAction::PlayCard(SlotIndex(0));
@@ -529,4 +1350,92 @@ mod tests {
             } if draw_pile.is_empty() && players[0].hand[1].is_none()
         );
     }
+
+    // Deck [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5]
+    // Each player dealt [1, 2, 3, 4]
+    // Each player plays slot 0, then slot 1, then ..
+    // #[test]
+    // fn test_full_game_todo() {
+    //     use PlayerAction::*;
+
+    //     fn lucky_deck() -> Vec<Card> {
+    //         [One, Two, Three, Four, Five].into_iter().map((|face| [Red, Blue, Green, White, Yellow].into_iter().map(|suit| Card { face, suit }))).flatten().collect()
+
+    //     }
+
+    //     fn S(slot_index: usize) -> SlotIndex {
+    //         SlotIndex(slot_index)
+    //     }
+
+    //     fn P(player_index: usize) -> PlayerIndex {
+    //         PlayerIndex(player_index)
+    //     }
+
+    //     let lucky_game = GameState::start_with_deck(&GameConfig {
+    //         num_players: 5,
+    //         hand_size: 5,
+    //         num_fuses: 3,
+    //         num_hints: 8,
+    //         starting_player:  P(0),
+    //         seed: 0,
+    //     }, lucky_deck());
+
+    //     let actions = [
+    //         PlayCard(S(0)),
+    //         PlayCard(S(0)),
+    //         PlayCard(S(0)),
+    //         PlayCard(S(0)),
+    //         PlayCard(S(0)),
+    //         PlayCard(S(1)),
+    //         PlayCard(S(1)),
+    //         PlayCard(S(1)),
+    //         PlayCard(S(1)),
+    //         PlayCard(S(1)),
+
+    //     ]
+
+    //     assert!(result.is_ok());
+    //     assert_matches!(
+    //         &game_state,
+    //         GameState {
+    //             last_turn: Some(12),
+    //             outcome: None,
+    //             draw_pile,
+    //             ..
+    //         } if draw_pile.is_empty()
+    //     );
+
+    //     let action = PlayerAction::PlayCard(SlotIndex(0));
+    //     let effects = game_state.play(action).unwrap();
+    //     let result = game_state.run_effects(effects);
+
+    //     assert!(result.is_ok());
+    //     assert_matches!(
+    //         &game_state,
+    //         GameState {
+    //             last_turn: Some(12),
+    //             outcome: None,
+    //             players,
+    //             draw_pile,
+    //             ..
+    //         } if draw_pile.is_empty() && players[1].hand[0].is_none()
+    //     );
+
+    //     // last turn!
+    //     let action = PlayerAction::PlayCard(SlotIndex(1));
+    //     let effects = game_state.play(action).unwrap();
+    //     let result = game_state.run_effects(effects);
+
+    //     assert!(result.is_ok());
+    //     assert_matches!(
+    //         &game_state,
+    //         GameState {
+    //             last_turn: Some(12),
+    //             outcome: Some(GameOutcome::Fail { score: _ }),
+    //             players,
+    //             draw_pile,
+    //             ..
+    //         } if draw_pile.is_empty() && players[0].hand[1].is_none()
+    //     );
+    // }
 }

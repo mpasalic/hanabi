@@ -819,7 +819,7 @@ fn generate_game_log(
     fn card_played(effects: &Vec<GameEffect>) -> Card {
         let card_played = effects.iter().find_map(|effect| match effect {
             Eff::PlaceOnBoard(card) => Some(card),
-            Eff::AddToDiscrard(card) => Some(card),
+            Eff::AddToDiscard(card) => Some(card),
             _ => None,
         });
 
