@@ -1392,20 +1392,15 @@ impl From<HanabiApp> for GameProps {
                     revealed_game_log,
                     ..
                 } => {
-                    let (selected_game_state_index, selected_game_state) =
-                        if app_state.game_state_selection == 0 {
-                            (None, &revealed_game_log.current_game_state())
-                        } else {
-                            let max_log = revealed_game_log.log.len();
-                            revealed_game_log
-                                .log
-                                .iter()
-                                .enumerate()
-                                .rev()
-                                .map(|(i, (_, _, _, game_state))| (Some(i), game_state))
-                                .nth(app_state.game_state_selection.min(max_log - 1))
-                                .unwrap()
-                        };
+                    let max_log = revealed_game_log.log.len();
+                    let (selected_game_state_index, selected_game_state) = revealed_game_log
+                        .log
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .map(|(i, (_, _, _, game_state))| (Some(i), game_state))
+                        .nth(app_state.game_state_selection.min(max_log - 1))
+                        .unwrap();
 
                     GameProps {
                         game_states_count: revealed_game_log.log.len(),
