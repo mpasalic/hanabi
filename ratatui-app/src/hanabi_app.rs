@@ -806,6 +806,20 @@ fn generate_game_log(
             .bold()
     }
 
+    fn slot(slot: usize) -> Span<'static> {
+        Span::from(format!(
+            "{} card",
+            match slot + 1 {
+                1 => Span::from("1st"),
+                2 => Span::from("2nd"),
+                3 => Span::from("3rd"),
+                4 => Span::from("4th"),
+                5 => Span::from("5th"),
+                _ => Span::from("??"),
+            }
+        ))
+    }
+
     fn suit_span(suit: CardSuit) -> Span<'static> {
         // Span::from(suit.key())
         //     .style(default_style().fg(BACKGROUND_COLOR).bg(colorize_suit(suit)))
@@ -840,7 +854,7 @@ fn generate_game_log(
             // CardFace::Four => "\u{f03ae}",
             // CardFace::Five => "\u{f03b0}",
         })
-        .fg(NORMAL_TEXT)
+        .fg(ALMOST_WHITE)
         .bold()
     }
 
@@ -866,31 +880,44 @@ fn generate_game_log(
             .collect_vec()
     }
 
-    fn hint_spans(hint_type: HintAction, effects: &Vec<GameEffect>) -> Vec<Span<'static>> {
-        hint_slots(&effects)
+    fn hint_spans(
+        hand_size: usize,
+        hint_type: HintAction,
+        effects: &Vec<GameEffect>,
+    ) -> Vec<Span<'static>> {
+        (0..hand_size)
             .into_iter()
-            .map(|_| match hint_type {
-                HintAction::SameFace(face) => face_span(face),
-                HintAction::SameSuit(suit) => suit_span(suit),
+            .map(|i| {
+                let hint = hint_slots(&effects).contains(&i);
+                match hint_type {
+                    HintAction::SameFace(face) => {
+                        if hint {
+                            face_span(face).fg(ALMOST_WHITE)
+                        } else {
+                            "_".fg(DIM_TEXT)
+                        }
+                    }
+                    HintAction::SameSuit(suit) => {
+                        if hint {
+                            suit_span(suit)
+                        } else {
+                            "_".fg(DIM_TEXT)
+                        }
+                    }
+                }
             })
-            // .intersperse(Span::raw(" "))
             .collect_vec()
+        // hint_slots(&effects)
+        //     .into_iter()
+        //     .map(|_| match hint_type {
+        //         HintAction::SameFace(face) => face_span(face),
+        //         HintAction::SameSuit(suit) => suit_span(suit),
+        //     })
+        //     // .intersperse(Span::raw(" "))
+        //     .collect_vec()
     }
 
     fn hint_count(effects: &Vec<GameEffect>) -> usize {
-        // match effects
-        //     .iter()
-        //     .filter(|e| matches!(e, Eff::HintCard(_, _, _)))
-        //     .count()
-        // {
-        //     1 => Span::from(" 1x "),
-        //     2 => Span::from(" 2x "),
-        //     3 => Span::from(" 3x "),
-        //     4 => Span::from(" 4x "),
-        //     5 => Span::from(" 5x "),
-        //     _ => panic!("invalid hint count"),
-        // }
-        // .fg(NORMAL_TEXT)
         effects
             .iter()
             .filter(|e| matches!(e, Eff::HintCard(_, _, _)))
@@ -928,7 +955,7 @@ fn generate_game_log(
                 event:
                     GameEvent::PlayerAction {
                         player_index: PlayerIndex(player_index),
-                        action: PlayerAction::PlayCard(SlotIndex(index)),
+                        action: PlayerAction::PlayCard(SlotIndex(slot_index)),
                         effects,
                     },
                 ..
@@ -936,6 +963,8 @@ fn generate_game_log(
                 count_span(turn_index),
                 player_name_span(*player_index),
                 Span::raw(" played "),
+                slot(*slot_index),
+                Span::raw(" "),
                 card(card_played(&effects)),
                 result_span(&effects),
             ]
@@ -944,7 +973,7 @@ fn generate_game_log(
                 event:
                     GameEvent::PlayerAction {
                         player_index: PlayerIndex(player_index),
-                        action: PlayerAction::DiscardCard(SlotIndex(index)),
+                        action: PlayerAction::DiscardCard(SlotIndex(slot_index)),
                         effects,
                     },
                 ..
@@ -952,6 +981,8 @@ fn generate_game_log(
                 count_span(turn_index),
                 player_name_span(*player_index),
                 Span::raw(" discarded "),
+                slot(*slot_index),
+                Span::raw(" "),
                 card(card_played(&effects)),
                 result_span(&effects),
             ]
@@ -972,7 +1003,11 @@ fn generate_game_log(
                 Span::raw(" "),
             ]
             .into_iter()
-            .chain(hint_spans(*hint, &effects))
+            .chain(hint_spans(
+                game_state.game_config.hand_size,
+                *hint,
+                &effects,
+            ))
             .collect_vec(),
             GameSnapshotEvent {
                 event: Ev::GameOver(outcome),
