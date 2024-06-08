@@ -519,7 +519,7 @@ impl<'a> WidgetRef for Node<'a> {
                         .lines
                         .len()
                         .saturating_sub(render_area.height as usize) as i64
-                        + *scroll_offset)
+                        - *scroll_offset)
                         .max(0)
                         .min(max_scrolling as i64) as usize;
 

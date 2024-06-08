@@ -1331,88 +1331,88 @@ mod tests {
     // Deck [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5]
     // Each player dealt [1, 2, 3, 4]
     // Each player plays slot 0, then slot 1, then ..
-    // #[test]
-    // fn test_full_game_todo() {
-    //     use PlayerAction::*;
+    #[test]
+    fn test_full_game_todo() {
+        // use PlayerAction::*;
 
-    //     fn lucky_deck() -> Vec<Card> {
-    //         [One, Two, Three, Four, Five].into_iter().map((|face| [Red, Blue, Green, White, Yellow].into_iter().map(|suit| Card { face, suit }))).flatten().collect()
+        // fn lucky_deck() -> Vec<Card> {
+        //     [One, Two, Three, Four, Five].into_iter().map((|face| [Red, Blue, Green, White, Yellow].into_iter().map(|suit| Card { face, suit }))).flatten().collect()
 
-    //     }
+        // }
 
-    //     fn S(slot_index: usize) -> SlotIndex {
-    //         SlotIndex(slot_index)
-    //     }
+        // fn S(slot_index: usize) -> SlotIndex {
+        //     SlotIndex(slot_index)
+        // }
 
-    //     fn P(player_index: usize) -> PlayerIndex {
-    //         PlayerIndex(player_index)
-    //     }
+        // fn P(player_index: usize) -> PlayerIndex {
+        //     PlayerIndex(player_index)
+        // }
 
-    //     let lucky_game = GameState::start_with_deck(&GameConfig {
-    //         num_players: 5,
-    //         hand_size: 5,
-    //         num_fuses: 3,
-    //         num_hints: 8,
-    //         starting_player:  P(0),
-    //         seed: 0,
-    //     }, lucky_deck());
+        // let lucky_game = GameState::start_with_deck(&GameConfig {
+        //     num_players: 5,
+        //     hand_size: 5,
+        //     num_fuses: 3,
+        //     num_hints: 8,
+        //     starting_player:  P(0),
+        //     seed: 0,
+        // }, lucky_deck());
 
-    //     let actions = [
-    //         PlayCard(S(0)),
-    //         PlayCard(S(0)),
-    //         PlayCard(S(0)),
-    //         PlayCard(S(0)),
-    //         PlayCard(S(0)),
-    //         PlayCard(S(1)),
-    //         PlayCard(S(1)),
-    //         PlayCard(S(1)),
-    //         PlayCard(S(1)),
-    //         PlayCard(S(1)),
+        // let actions = [
+        //     PlayCard(S(0)),
+        //     PlayCard(S(0)),
+        //     PlayCard(S(0)),
+        //     PlayCard(S(0)),
+        //     PlayCard(S(0)),
+        //     PlayCard(S(1)),
+        //     PlayCard(S(1)),
+        //     PlayCard(S(1)),
+        //     PlayCard(S(1)),
+        //     PlayCard(S(1)),
 
-    //     ]
+        // ]
 
-    //     assert!(result.is_ok());
-    //     assert_matches!(
-    //         &game_state,
-    //         GameState {
-    //             last_turn: Some(12),
-    //             outcome: None,
-    //             draw_pile,
-    //             ..
-    //         } if draw_pile.is_empty()
-    //     );
+        // assert!(result.is_ok());
+        // assert_matches!(
+        //     &game_state,
+        //     GameState {
+        //         last_turn: Some(12),
+        //         outcome: None,
+        //         draw_pile,
+        //         ..
+        //     } if draw_pile.is_empty()
+        // );
 
-    //     let action = PlayerAction::PlayCard(SlotIndex(0));
-    //     let effects = game_state.play(action).unwrap();
-    //     let result = game_state.run_effects(effects);
+        // let action = PlayerAction::PlayCard(SlotIndex(0));
+        // let effects = game_state.play(action).unwrap();
+        // let result = game_state.run_effects(effects);
 
-    //     assert!(result.is_ok());
-    //     assert_matches!(
-    //         &game_state,
-    //         GameState {
-    //             last_turn: Some(12),
-    //             outcome: None,
-    //             players,
-    //             draw_pile,
-    //             ..
-    //         } if draw_pile.is_empty() && players[1].hand[0].is_none()
-    //     );
+        // assert!(result.is_ok());
+        // assert_matches!(
+        //     &game_state,
+        //     GameState {
+        //         last_turn: Some(12),
+        //         outcome: None,
+        //         players,
+        //         draw_pile,
+        //         ..
+        //     } if draw_pile.is_empty() && players[1].hand[0].is_none()
+        // );
 
-    //     // last turn!
-    //     let action = PlayerAction::PlayCard(SlotIndex(1));
-    //     let effects = game_state.play(action).unwrap();
-    //     let result = game_state.run_effects(effects);
+        // // last turn!
+        // let action = PlayerAction::PlayCard(SlotIndex(1));
+        // let effects = game_state.play(action).unwrap();
+        // let result = game_state.run_effects(effects);
 
-    //     assert!(result.is_ok());
-    //     assert_matches!(
-    //         &game_state,
-    //         GameState {
-    //             last_turn: Some(12),
-    //             outcome: Some(GameOutcome::Fail { score: _ }),
-    //             players,
-    //             draw_pile,
-    //             ..
-    //         } if draw_pile.is_empty() && players[0].hand[1].is_none()
-    //     );
-    // }
+        // assert!(result.is_ok());
+        // assert_matches!(
+        //     &game_state,
+        //     GameState {
+        //         last_turn: Some(12),
+        //         outcome: Some(GameOutcome::Fail { score: _ }),
+        //         players,
+        //         draw_pile,
+        //         ..
+        //     } if draw_pile.is_empty() && players[0].hand[1].is_none()
+        // );
+    }
 }

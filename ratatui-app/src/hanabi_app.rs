@@ -41,7 +41,7 @@ pub struct HanabiApp {
     pub exit: bool,
     command: CommandState,
     client_state: HanabiClient,
-    game_log_scroll_adjust: i64,
+    game_log_scroll_adjust: usize,
     game_state_selection: usize,
 }
 
@@ -175,18 +175,16 @@ impl HanabiApp {
 
             AppAction::ScrollGameLog(adjust) => {
                 if adjust > 0 {
-                    self.game_log_scroll_adjust =
-                        self.game_log_scroll_adjust.saturating_add(adjust as i64);
-                } else {
-                    self.game_log_scroll_adjust =
-                        self.game_log_scroll_adjust.saturating_sub(adjust as i64);
+                    self.game_log_scroll_adjust = self.game_log_scroll_adjust.saturating_add(1);
+                } else if adjust < 0 {
+                    self.game_log_scroll_adjust = self.game_log_scroll_adjust.saturating_sub(1);
                 }
             }
             AppAction::AdjustCurrentState(adjust) => {
                 if adjust > 0 {
                     self.game_state_selection =
                         self.game_state_selection.saturating_add(1 as usize);
-                } else {
+                } else if adjust < 0 {
                     self.game_state_selection =
                         self.game_state_selection.saturating_sub(1 as usize);
                 }
@@ -460,6 +458,9 @@ impl HanabiApp {
 
         let log_color = Color::Gray;
 
+        let current_scroll = self.game_log_scroll_adjust;
+        let max_scroll = log.len();
+
         Block::new()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
@@ -484,9 +485,16 @@ impl HanabiApp {
                         ..Stack::default_layout()
                     },
                     Text::from(log),
-                    self.game_log_scroll_adjust,
+                    self.game_log_scroll_adjust as i64,
                 )
-                .scrollable(AppAction::ScrollGameLog(1), AppAction::ScrollGameLog(-1))],
+                .scrollable(
+                    AppAction::ScrollGameLog(if current_scroll + 1 < max_scroll {
+                        1
+                    } else {
+                        0
+                    }),
+                    AppAction::ScrollGameLog(if current_scroll > 0 { -1 } else { 0 }),
+                )],
             )
     }
 
@@ -929,9 +937,8 @@ fn generate_game_log(
 
     fn result_span(effects: &Vec<GameEffect>) -> Span<'static> {
         let result = effects.iter().find_map(|effect| match effect {
-            Eff::BurnFuse => Some(" (\u{f1052} \u{f0691} ) "),
-            Eff::IncHint => Some(" (\u{f15cb} \u{f017} ) "),
-            Eff::MarkLastTurn(_) => Some(" LAST ROUND!"),
+            Eff::BurnFuse => Some(" \u{f1052} \u{f0691}"),
+            Eff::IncHint => Some(" \u{f15cb} \u{f017}"),
             _ => None,
         });
 
@@ -965,7 +972,7 @@ fn generate_game_log(
             } => [
                 count_span(turn_index),
                 player_name_span(*player_index),
-                Span::raw(" played "),
+                Span::raw(" plays "),
                 slot(*slot_index),
                 Span::raw(" "),
                 card(card_played(&effects)),
@@ -983,7 +990,7 @@ fn generate_game_log(
             } => [
                 count_span(turn_index),
                 player_name_span(*player_index),
-                Span::raw(" discarded "),
+                Span::raw(" dumps "),
                 slot(*slot_index),
                 Span::raw(" "),
                 card(card_played(&effects)),
@@ -1001,7 +1008,7 @@ fn generate_game_log(
             } => [
                 count_span(turn_index),
                 player_name_span(*player_index),
-                Span::raw(" hinted "),
+                Span::raw(" hints "),
                 player_name_span(*hinted_index),
                 Span::raw(" "),
             ]
@@ -1315,14 +1322,27 @@ impl From<HanabiApp> for GameProps {
                     log,
                     ..
                 } => {
-                    let (selected_game_state_index, selected_game_state) =
+                    let (selected_game_state_index, acting_player, selected_game_state) =
                         if app_state.game_state_selection == 0 {
-                            (None, game_state)
+                            (None, game_state.current_turn_player_index, game_state)
                         } else {
                             log.iter()
                                 .enumerate()
                                 .rev()
-                                .map(|(i, ev)| (Some(i), &ev.snapshot))
+                                .map(|(i, ev)| {
+                                    (
+                                        Some(i),
+                                        match ev.event {
+                                            GameEvent::PlayerAction { player_index, .. } => {
+                                                player_index
+                                            }
+                                            GameEvent::GameOver(_) => {
+                                                ev.snapshot.current_turn_player_index
+                                            }
+                                        },
+                                        &ev.snapshot,
+                                    )
+                                })
                                 .nth(app_state.game_state_selection)
                                 .unwrap()
                         };
@@ -1346,23 +1366,21 @@ impl From<HanabiApp> for GameProps {
                         players: (0..players.len())
                             .into_iter()
                             .map(|player_index| {
-                                let player_state = match (
-                                    selected_game_state.current_turn_player_index,
-                                    &app_state.command.current_command,
-                                ) {
-                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                        PlayerRenderState::CurrentTurn
-                                    }
-                                    (
-                                        _,
-                                        &CommandBuilder::Hinting(HintState::ChoosingHint {
-                                            player_index: command_player_index,
-                                        }),
-                                    ) if command_player_index as usize == player_index => {
-                                        PlayerRenderState::CurrentSelection
-                                    }
-                                    _ => PlayerRenderState::Default,
-                                };
+                                let player_state =
+                                    match (acting_player, &app_state.command.current_command) {
+                                        (PlayerIndex(turn), _) if turn as usize == player_index => {
+                                            PlayerRenderState::CurrentTurn
+                                        }
+                                        (
+                                            _,
+                                            &CommandBuilder::Hinting(HintState::ChoosingHint {
+                                                player_index: command_player_index,
+                                            }),
+                                        ) if command_player_index as usize == player_index => {
+                                            PlayerRenderState::CurrentSelection
+                                        }
+                                        _ => PlayerRenderState::Default,
+                                    };
 
                                 match &selected_game_state.players[player_index] {
                                     ClientPlayerView::Me { name, hand } => player_node_props(
@@ -1393,14 +1411,17 @@ impl From<HanabiApp> for GameProps {
                     ..
                 } => {
                     let max_log = revealed_game_log.log.len();
-                    let (selected_game_state_index, selected_game_state) = revealed_game_log
-                        .log
-                        .iter()
-                        .enumerate()
-                        .rev()
-                        .map(|(i, (_, _, _, game_state))| (Some(i), game_state))
-                        .nth(app_state.game_state_selection.min(max_log - 1))
-                        .unwrap();
+                    let (selected_game_state_index, acting_player, selected_game_state) =
+                        revealed_game_log
+                            .log
+                            .iter()
+                            .enumerate()
+                            .rev()
+                            .map(|(i, (acting_player, _, _, game_state))| {
+                                (i, acting_player, game_state)
+                            })
+                            .nth(app_state.game_state_selection.min(max_log - 1))
+                            .unwrap();
 
                     GameProps {
                         game_states_count: revealed_game_log.log.len(),
@@ -1412,7 +1433,11 @@ impl From<HanabiApp> for GameProps {
                                 players.iter().map(|p| p.name.clone()).collect(),
                             ),
                             players,
-                            selected_game_state_index,
+                            if app_state.game_state_selection == 0 {
+                                None
+                            } else {
+                                Some(selected_game_state_index)
+                            },
                         ),
                         board_render_state: board_node_props(
                             &selected_game_state.played_cards,
@@ -1424,15 +1449,10 @@ impl From<HanabiApp> for GameProps {
                         players: (0..players.len())
                             .into_iter()
                             .map(|player_index| {
-                                let player_state = match (
-                                    game_state.current_turn_player_index,
-                                    &app_state.command.current_command,
-                                ) {
-                                    (PlayerIndex(turn), _) if turn as usize == player_index => {
-                                        PlayerRenderState::CurrentTurn
-                                    }
-
-                                    _ => PlayerRenderState::Default,
+                                let player_state = if acting_player.0 == player_index {
+                                    PlayerRenderState::CurrentTurn
+                                } else {
+                                    PlayerRenderState::Default
                                 };
 
                                 player_node_props(

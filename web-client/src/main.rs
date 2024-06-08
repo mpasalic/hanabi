@@ -213,13 +213,14 @@ impl NewCC for HelloApp {
         // backend.set_font_size(16);
 
         let session_join_url =
-            session_id.and_then(|s| Some(format!("{}/?session_id={}", web_url.clone(), s)));
+            session_id.clone().and_then(|s| Some(format!("{}/?session_id={}", web_url.clone(), s)));
 
         let terminal = Terminal::new(backend).unwrap();
         Self {
             terminal: terminal,
             tui_state: TuiState::AppInput(AppInput::new(
                 websocket_url.clone(),
+                session_id,
                 session_join_url,
                 player_name.unwrap_or("".to_string()),
             )),
