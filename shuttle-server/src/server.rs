@@ -79,18 +79,26 @@ impl GameLobby {
                         session_id: self.session_id.0.clone(),
                         players: players.clone(),
                         game_state: game_log.into_client_game_state(
+                            game_log.current_game_state(),
                             PlayerIndex(index),
                             self.players.iter().map(|p| p.name.clone()).collect(),
                         ),
+                        log: game_log
+                            .into_client_game_log(
+                                PlayerIndex(index),
+                                self.players.iter().map(|p| p.name.clone()).collect(),
+                            )
+                            .clone(),
                     },
                     GameLobbyStatus::Ended(game_log) => HanabiGame::Ended {
                         session_id: self.session_id.0.clone(),
                         players: players.clone(),
                         game_state: game_log.into_client_game_state(
+                            game_log.current_game_state(),
                             PlayerIndex(index),
                             self.players.iter().map(|p| p.name.clone()).collect(),
                         ),
-                        revealed_game_state: game_log.current_game_state().clone(),
+                        revealed_game_log: game_log.clone(),
                     },
                 },
             ));
@@ -282,25 +290,6 @@ impl LobbyServer {
                     }
                     game_lobby.update_players();
                 });
-
-            match game_lobby {
-                Entry::Occupied(game_lobby_entry) => {
-                    let game_lobby = game_lobby_entry.get();
-
-                    let all_disconnected = game_lobby.players.iter().all(|p| match p.connection {
-                        ConnectionState::Disconnected => true,
-                        _ => false,
-                    });
-
-                    match (game_lobby.status.clone(), all_disconnected) {
-                        (GameLobbyStatus::Ended(_), true) => {
-                            game_lobby_entry.remove();
-                        }
-                        _ => {}
-                    }
-                }
-                Entry::Vacant(_) => {}
-            }
         }
     }
 

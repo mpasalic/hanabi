@@ -28,6 +28,7 @@ pub struct AppInput {
     ///
     pub display_name: String,
     pub session_id: Option<String>,
+    pub session_join_url: Option<String>,
     pub server_address: String,
 }
 
@@ -37,6 +38,7 @@ impl Default for AppInput {
             display_name: String::new(),
             input_mode: InputMode::EditingDisplayName,
             session_id: None,
+            session_join_url: None,
             server_address: String::new(),
         }
     }
@@ -279,11 +281,17 @@ fn layout(frame: Rect) -> InputLayout {
 }
 
 impl AppInput {
-    pub fn new(url: String, session_id: Option<String>, display_name: String) -> AppInput {
+    pub fn new(
+        url: String,
+        session_id: Option<String>,
+        session_join_url: Option<String>,
+        display_name: String,
+    ) -> AppInput {
         AppInput {
             display_name,
             input_mode: InputMode::EditingDisplayName,
             session_id,
+            session_join_url,
             server_address: url,
         }
     }
@@ -402,7 +410,7 @@ impl AppInput {
         let session_id_text = input_row(
             "Join URL: ".to_string(),
             "Game ID".to_string(),
-            self.session_id.clone().unwrap_or("".to_string()),
+            self.session_join_url.clone().unwrap_or("".to_string()),
             self.input_mode == InputMode::EditingSessionId,
         )
         .into_iter()

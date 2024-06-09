@@ -13,4 +13,4 @@ run-shuttle-dev:
   cargo shuttle run
 
 deploy-shuttle-release:
-  cargo shuttle project restart && cargo shuttle deploy
+  cargo shuttle deploy

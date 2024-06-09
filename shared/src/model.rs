@@ -79,7 +79,6 @@ pub struct GameState {
     pub turn: u8,              // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
-    pub history: Vec<GameEffect>,
     // pub status: GameStatus,
 }
 
@@ -91,6 +90,12 @@ pub enum GameEvent {
         effects: Vec<GameEffect>,
     },
     GameOver(GameOutcome),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GameSnapshotEvent {
+    pub event: GameEvent,
+    pub snapshot: GameStateSnapshot,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -106,7 +111,7 @@ pub struct GameStateSnapshot {
     pub num_rounds: u8,        // todo maybe convert to player index
     pub last_turn: Option<u8>, // we end there
     pub outcome: Option<GameOutcome>,
-    pub log: Vec<GameEvent>,
+
     pub game_config: GameConfig,
     // TODO
     // Player names
