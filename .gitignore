@@ -2,3 +2,4 @@
 .vscode
 /web-client/dist
 .DS_Store
+/dist
