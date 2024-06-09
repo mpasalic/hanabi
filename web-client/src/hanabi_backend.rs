@@ -1,11 +1,14 @@
 //! This module provides the `HanabiBackend` implementation for the [`Backend`] trait.
 //! It is used in the integration tests to verify the correctness of the library.
 
-use egui::epaint::{
-    text::{LayoutJob, TextFormat},
-    Color32, FontFamily, FontId, Fonts,
-};
 use egui::text::TextWrapping;
+use egui::{
+    epaint::{
+        text::{LayoutJob, TextFormat},
+        Color32, FontFamily, FontId, Fonts,
+    },
+    Galley,
+};
 use egui::{Label, Response, Stroke, Ui};
 
 use ratatui::style::{Color, Modifier};
@@ -18,6 +21,8 @@ use ratatui::{
     buffer::{Buffer, Cell},
     layout::{Rect, Size},
 };
+
+const DEBUG_MODE: bool = false;
 
 ///The HanabiBackend is the widget+backend itself , from which you can make a ratatui terminal ,
 /// then you can do ui.add(terminal.backend_mut()) inside an egui context    .
@@ -68,17 +73,29 @@ impl egui::Widget for &mut HanabiBackend {
         let av_height = av_size.y;
 
         //   let char_height = self.get_font_size() as f32;
-        let char_height = ui.fonts(|fx| fx.row_height(&self.regular_font));
+        let char_height = ui.fonts(|fx| fx.row_height(&self.regular_font.clone()));
         let char_width = ui.fonts(|fx| self.get_font_width(fx));
+
+        let possible_num_chars = (av_width / (char_width)) as u16;
+        let possible_chars_height = (av_height / (char_height)) as u16;
+
+        // The font lies. Do the actual layout to find the real width and height
+        let (layout_width, layout_height) = ui.fonts(|fx| {
+            let result = fx.layout_no_wrap(
+                format!("{:width$}\n", "A", width = possible_num_chars as usize)
+                    .repeat(possible_chars_height as usize),
+                self.regular_font.clone(),
+                Color32::BLACK,
+            );
+            (result.rect.width(), result.rect.height())
+        });
+        let char_width = layout_width / possible_num_chars as f32;
+        let char_height = layout_height / possible_chars_height as f32;
 
         let available_chars_width = (av_width / (char_width)) as u16;
         let available_chars_height = (av_height / (char_height)) as u16;
         let cur_size = self.size().expect("COULD NOT GET CURRENT BACKEND SIZE");
 
-        if (cur_size.width != available_chars_width) || (cur_size.height != available_chars_height)
-        {
-            self.resize(available_chars_width, available_chars_height);
-        }
         let cur_buf = self.buffer();
 
         let singular_wrapping = TextWrapping {
@@ -91,13 +108,15 @@ impl egui::Widget for &mut HanabiBackend {
         let mut job = LayoutJob {
             wrap: singular_wrapping.to_owned(),
             break_on_newline: true,
-
-            //       halign: egui::Align::Min,
+            // halign: egui::Align::Min,
             ..Default::default()
         };
 
-        for y in 0..available_chars_height {
-            for x in 0..available_chars_width {
+        let drawing_chars_width = available_chars_width.min(cur_size.width);
+        let drawing_chars_height = available_chars_height.min(cur_size.height);
+
+        for y in 0..drawing_chars_height {
+            for x in 0..drawing_chars_width {
                 let cur_cell = cur_buf.get(x, y);
 
                 let is_bold = cur_cell.modifier.contains(Modifier::BOLD);
@@ -173,9 +192,9 @@ impl egui::Widget for &mut HanabiBackend {
 
                 job.append(cur_cell.symbol(), 0.0, tf.clone());
 
-                if x == (available_chars_width - 1) {
+                if x == (drawing_chars_width - 1) {
                     // let end = ui.add(Label::new(job.clone()));
-                    if y == (available_chars_height - 1) {
+                    if y == (drawing_chars_height - 1) {
                         // return end;
                     } else {
                         job.append("\n", 0.0, tf.clone());
@@ -184,7 +203,22 @@ impl egui::Widget for &mut HanabiBackend {
             }
         }
 
-        ui.add(Label::new(job.clone()))
+        // Resize AFTER the layout is done. This way we don't get weird glitchy behaviour during resize.
+        if (cur_size.width != available_chars_width) || (cur_size.height != available_chars_height)
+        {
+            self.resize(available_chars_width, available_chars_height);
+        }
+
+        let widget = ui.add(Label::new(job.clone()));
+
+        if DEBUG_MODE {
+            return widget.on_hover_text(format!(
+                " available_chars_height={} \n available_chars_width={} \n av_height={} \n av_width={} \n char_height={} \n char_width={} \n pixels_per_point={} \n native_pixels_per_point={} \n screen_rect_width={} \n screen_rect_height={} \n layout_width={}",
+                available_chars_height, available_chars_width, av_height, av_width, char_height, char_width, ui.ctx().pixels_per_point(), ui.ctx().native_pixels_per_point().unwrap_or(0.), ui.ctx().screen_rect().width(), ui.ctx().screen_rect().height(), layout_width
+            ));
+        }
+
+        widget
     }
 }
 
