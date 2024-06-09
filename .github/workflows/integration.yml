@@ -14,17 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-          toolchain: stable
-      - name: Install Trunk
-        run: cargo install trunk
       - name: Build
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
-      - name: Build Deploy Files
-        working-directory: web-client
-        run: trunk build --release

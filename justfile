@@ -1,16 +1,28 @@
-# just task runner configuration for shuttle-template-yew
+default:
+  @just --list
 
-run-web-dev:
+build:
+  cargo build && cd web-client && trunk clean && trunk build
+
+test: build
+  cargo test
+
+# Runs a web client with a proxy to the backend server (requires `just serve`)
+run:
   cd web-client && trunk serve --open --proxy-backend=ws://127.0.0.1:8000/websocket --proxy-ws
 
-run-web-prod:
+# Runs a web client with a proxy to the production shuttle server
+run-release:
   cd web-client && trunk serve --open --proxy-backend=wss://hanabi.shuttleapp.rs/websocket --proxy-ws
 
-build-web-release:
+# Builds the WASM web client into `dist/``
+build-release:
   cd web-client && trunk clean && trunk build --release
 
-run-shuttle-dev:
+# Runs a local server
+serve: build
   cargo shuttle run
 
-deploy-shuttle-release:
+# Deploys the server to the production shuttle server
+release: build-release
   cargo shuttle deploy
