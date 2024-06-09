@@ -271,7 +271,7 @@ impl HanabiApp {
     }
 
     fn connecting_ui(&self, frame: &mut Frame) {
-        let text: Text = Text::from("Conecting...".to_string());
+        let text: Text = Text::from("Connecting...".to_string());
         let log = Paragraph::new(text);
 
         frame.render_widget(log, frame.size());

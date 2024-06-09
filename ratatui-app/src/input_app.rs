@@ -410,7 +410,7 @@ impl AppInput {
         let session_id_text = input_row(
             "Join URL: ".to_string(),
             "Game ID".to_string(),
-            self.session_id.clone().unwrap_or("".to_string()),
+            self.session_join_url.clone().unwrap_or("".to_string()),
             self.input_mode == InputMode::EditingSessionId,
         )
         .into_iter()

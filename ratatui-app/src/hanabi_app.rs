@@ -252,7 +252,7 @@ impl HanabiApp {
             .child(Span::raw(if self.exit {
                 "Exiting..."
             } else {
-                "Conecting..."
+                "Connecting... (yes spelled correctly this time)"
             }))
     }
 
