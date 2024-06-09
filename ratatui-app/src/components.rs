@@ -16,7 +16,11 @@ use taffy::{
     AlignContent, AlignItems, FlexDirection, JustifyContent, Size,
 };
 
-use crate::nodes::{GridStack, HStack, LayoutRect, LayoutStyle, Node, NodeBuilder, Stack, VStack};
+use crate::{
+    glyphs::{EQUALS_SIGN, NOT_EQUALS},
+    hanabi_app::AppAction,
+    nodes::{GridStack, HStack, LayoutRect, LayoutStyle, Node, NodeBuilder, Stack, VStack},
+};
 
 pub trait CardKey {
     fn key(&self) -> &'static str;
@@ -94,6 +98,12 @@ pub fn colorize_suit_dim(suit: CardSuit) -> Color {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum HintMode {
+    NotHints,
+    AllPossible,
+}
+
 #[derive(Clone, Copy)]
 pub enum CardNodeProps {
     Empty,
@@ -119,6 +129,7 @@ pub struct PlayerNodeProps {
     pub name: String,
     pub hand: Vec<SlotNodeProps>,
     pub state: PlayerRenderState,
+    pub hint_mode: HintMode,
 }
 
 pub struct BoardProps {
@@ -185,6 +196,28 @@ pub fn card_node(card_node: CardNodeProps) -> Node<'static> {
         )
 }
 
+pub fn hint_span_derive(hint: &Hint) -> Node<'static> {
+    match hint {
+        Hint::IsNotSuit(suit) => Span::styled(
+            suit.key().to_string(),
+            default_style().fg(colorize_suit_dim(*suit)).not_bold(),
+        ),
+        Hint::IsNotFace(face) => Span::styled(
+            face.key().to_string(),
+            default_style().fg(DIM_TEXT).not_bold(),
+        ),
+        Hint::IsSuit(suit) => Span::styled(
+            suit.key().to_string(),
+            default_style().fg(colorize_suit_dim(*suit)).not_bold(),
+        ),
+        Hint::IsFace(face) => Span::styled(
+            face.key().to_string(),
+            default_style().fg(DIM_TEXT).not_bold(),
+        ),
+    }
+    .into()
+}
+
 pub fn hint_span(hint: &Hint) -> Node<'static> {
     match hint {
         Hint::IsNotSuit(suit) => Span::styled(
@@ -227,6 +260,22 @@ pub fn header_block(title: Span<'static>) -> Block<'static> {
         .style(default_style())
 }
 
+pub static BOARD_SUIT_ORDER: [CardSuit; 5] = [
+    CardSuit::Blue,
+    CardSuit::Green,
+    CardSuit::Red,
+    CardSuit::White,
+    CardSuit::Yellow,
+];
+
+pub static CARD_FACE_ORDER: [CardFace; 5] = [
+    CardFace::One,
+    CardFace::Two,
+    CardFace::Three,
+    CardFace::Four,
+    CardFace::Five,
+];
+
 pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
     let player_block = Block::new()
         .borders(Borders::ALL)
@@ -256,7 +305,7 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
             flex_direction: taffy::FlexDirection::Column,
             size: taffy::Size {
                 width: auto(),
-                height: length(19.),
+                height: length(20.),
             },
             // padding: padding(1.),
             // margin: margin(1.),
@@ -322,7 +371,16 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
                 .borders(Borders::TOP)
                 .border_type(BorderType::Plain)
                 .border_style(default_style().fg(BLOCK_COLOR).not_bold())
-                .title(" \u{f098e} ".set_style(default_style().fg(BLOCK_COLOR).not_bold()))
+                .title(
+                    format!(
+                        " {} ",
+                        match player_props.hint_mode {
+                            HintMode::NotHints => NOT_EQUALS,
+                            HintMode::AllPossible => EQUALS_SIGN,
+                        }
+                    )
+                    .set_style(default_style().fg(BLOCK_COLOR).not_bold()),
+                )
                 .title_alignment(Alignment::Center)
                 .title_position(Position::Top)
                 .layout(LayoutStyle {
@@ -352,39 +410,92 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
                             .hand
                             .iter()
                             .map(|s| {
-                                VStack::new().children(
-                                    LayoutStyle {
-                                        size: Size {
-                                            width: length(1.),
-                                            height: length(8.),
+                                match player_props.hint_mode {
+                                    HintMode::NotHints => VStack::new().children(
+                                        LayoutStyle {
+                                            size: Size {
+                                                width: length(1.),
+                                                height: length(8.),
+                                            },
+                                            ..VStack::default_layout()
                                         },
-                                        ..VStack::default_layout()
-                                    },
-                                    s.unique_not_hints.iter().map(hint_span).collect_vec(),
-                                )
+                                        s.unique_not_hints.iter().map(hint_span).collect_vec(),
+                                    ),
+                                    HintMode::AllPossible => {
+                                        let possible_faces: Vec<_> = CARD_FACE_ORDER
+                                            .into_iter()
+                                            .filter(|possible_face| {
+                                                if let Some(face_hint) = s.face_hint {
+                                                    face_hint == Hint::IsFace(*possible_face)
+                                                } else {
+                                                    s.unique_not_hints.iter().all(|h| {
+                                                        h != &Hint::IsNotFace(*possible_face)
+                                                    })
+                                                }
+                                            })
+                                            .collect();
+
+                                        let possible_suits: Vec<_> = BOARD_SUIT_ORDER
+                                            .into_iter()
+                                            .filter(|possible_suit| {
+                                                if let Some(suit_hint) = s.suit_hint {
+                                                    suit_hint == Hint::IsSuit(*possible_suit)
+                                                } else {
+                                                    s.unique_not_hints.iter().all(|h| {
+                                                        h != &Hint::IsNotSuit(*possible_suit)
+                                                    })
+                                                }
+                                            })
+                                            .collect();
+
+                                        VStack::new().children(
+                                            LayoutStyle {
+                                                size: Size {
+                                                    width: length(1.),
+                                                    height: length(11.),
+                                                },
+                                                ..VStack::default_layout()
+                                            },
+                                            (CARD_FACE_ORDER.iter().map(|f| {
+                                                if possible_faces
+                                                    .iter()
+                                                    .any(|possible_face| f == possible_face)
+                                                {
+                                                    hint_span_derive(&Hint::IsFace(*f))
+                                                } else {
+                                                    // hint_span(&Hint::IsNotFace(*f))
+                                                    Span::from(" ").into()
+                                                }
+                                            }))
+                                            .chain(BOARD_SUIT_ORDER.iter().map(|s| {
+                                                if possible_suits
+                                                    .iter()
+                                                    .any(|possible_suit| s == possible_suit)
+                                                {
+                                                    hint_span_derive(&Hint::IsSuit(*s))
+                                                } else {
+                                                    // hint_span(&Hint::IsNotSuit(*s))
+                                                    Span::from(" ").into()
+                                                }
+                                            }))
+                                            .collect_vec(),
+                                        )
+                                    }
+                                }
                             })
                             .collect_vec(),
                     ),
-                ),
+                )
+                .touchable(AppAction::ChangeHintMode(
+                    if player_props.hint_mode == HintMode::NotHints {
+                        HintMode::AllPossible
+                    } else {
+                        HintMode::NotHints
+                    },
+                )),
         ],
     )
 }
-
-static BOARD_SUIT_ORDER: [CardSuit; 5] = [
-    CardSuit::Blue,
-    CardSuit::Green,
-    CardSuit::Red,
-    CardSuit::White,
-    CardSuit::Yellow,
-];
-
-static CARD_FACE_ORDER: [CardFace; 5] = [
-    CardFace::One,
-    CardFace::Two,
-    CardFace::Three,
-    CardFace::Four,
-    CardFace::Five,
-];
 
 pub fn discarded_cards_tree(board_props: &BoardProps) -> Node<'static> {
     let card_key = |card: &Card| -> String { format!("{}{}", card.face.key(), card.suit.key()) };

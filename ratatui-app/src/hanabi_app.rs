@@ -43,6 +43,7 @@ pub struct HanabiApp {
     client_state: HanabiClient,
     game_log_scroll_adjust: usize,
     game_state_selection: usize,
+    hint_mode: HintMode,
 }
 
 pub enum EventHandlerResult {
@@ -114,6 +115,7 @@ impl HanabiApp {
             client_state: game_state,
             game_log_scroll_adjust: 0,
             game_state_selection: 0,
+            hint_mode: HintMode::NotHints,
         }
     }
 
@@ -188,6 +190,9 @@ impl HanabiApp {
                     self.game_state_selection =
                         self.game_state_selection.saturating_sub(1 as usize);
                 }
+            }
+            AppAction::ChangeHintMode(hint_mode) => {
+                self.hint_mode = hint_mode;
             }
         }
 
@@ -271,7 +276,12 @@ impl HanabiApp {
                 players: players
                     .iter()
                     .map(|p| {
-                        player_node_props(p.name.clone(), vec![None; 5], PlayerRenderState::Default)
+                        player_node_props(
+                            p.name.clone(),
+                            vec![None; 5],
+                            PlayerRenderState::Default,
+                            HintMode::NotHints,
+                        )
                     })
                     .collect_vec(),
                 game_log: vec![],
@@ -948,8 +958,19 @@ fn generate_game_log(
         }
     }
 
+    fn extra(effects: &Vec<GameEffect>) -> Vec<Span<'static>> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Eff::MarkLastTurn(_) => Some("    LAST ROUND!".fg(TURN_COLOR).bold()),
+                _ => None,
+            })
+            .collect_vec()
+    }
+
     let count_span = |i| -> Span<'static> {
-        let span = Span::raw(format!("{}. ", i + 1));
+        let count = format!("{}. ", i + 1);
+        let span = Span::raw(format!("{:<4}", count));
         if Some(i) == selected_index {
             span.to_string().bg(SELECTION_COLOR).fg(BACKGROUND_COLOR)
         } else {
@@ -970,13 +991,17 @@ fn generate_game_log(
                     },
                 ..
             } => [
-                count_span(turn_index),
-                player_name_span(*player_index),
-                Span::raw(" plays "),
-                slot(*slot_index),
-                Span::raw(" "),
-                card(card_played(&effects)),
-                result_span(&effects),
+                [
+                    count_span(turn_index),
+                    player_name_span(*player_index),
+                    Span::raw(" plays "),
+                    slot(*slot_index),
+                    Span::raw(" "),
+                    card(card_played(&effects)),
+                    result_span(&effects),
+                ]
+                .to_vec(),
+                extra(&effects),
             ]
             .to_vec(),
             GameSnapshotEvent {
@@ -988,13 +1013,17 @@ fn generate_game_log(
                     },
                 ..
             } => [
-                count_span(turn_index),
-                player_name_span(*player_index),
-                Span::raw(" dumps "),
-                slot(*slot_index),
-                Span::raw(" "),
-                card(card_played(&effects)),
-                result_span(&effects),
+                [
+                    count_span(turn_index),
+                    player_name_span(*player_index),
+                    Span::raw(" dumps "),
+                    slot(*slot_index),
+                    Span::raw(" "),
+                    card(card_played(&effects)),
+                    result_span(&effects),
+                ]
+                .to_vec(),
+                extra(&effects),
             ]
             .to_vec(),
             GameSnapshotEvent {
@@ -1006,37 +1035,46 @@ fn generate_game_log(
                     },
                 ..
             } => [
-                count_span(turn_index),
-                player_name_span(*player_index),
-                Span::raw(" hints "),
-                player_name_span(*hinted_index),
-                Span::raw(" "),
+                [
+                    count_span(turn_index),
+                    player_name_span(*player_index),
+                    Span::raw(" hints "),
+                    player_name_span(*hinted_index),
+                    Span::raw(" "),
+                ]
+                .into_iter()
+                .chain(hint_spans(
+                    game_state.game_config.hand_size,
+                    *hint,
+                    &effects,
+                ))
+                .collect_vec(),
+                extra(&effects),
             ]
-            .into_iter()
-            .chain(hint_spans(
-                game_state.game_config.hand_size,
-                *hint,
-                &effects,
-            ))
-            .collect_vec(),
+            .to_vec(),
             GameSnapshotEvent {
                 event: Ev::GameOver(outcome),
                 ..
-            } => [
-                Span::raw("Game Over: "),
+            } => [[
+                Span::raw("    Game Over: ").fg(TURN_COLOR).bold(),
                 match outcome {
-                    GameOutcome::Win => Span::raw("Victory!").fg(NORMAL_TEXT).bold(),
+                    GameOutcome::Win => Span::raw("Victory!").fg(TURN_COLOR).bold(),
                     GameOutcome::Fail { score } => {
                         Span::raw(format!("Defeat :( (score = {})", score))
-                            .fg(NORMAL_TEXT)
+                            .fg(TURN_COLOR)
                             .bold()
                     }
                 },
             ]
+            .to_vec()]
             .to_vec(),
         });
 
-    game_log_iter.map(|spans| Line::from(spans)).collect_vec()
+    game_log_iter
+        .flatten()
+        .filter(|v| !v.is_empty())
+        .map(|spans| Line::from(spans))
+        .collect_vec()
 
     // let log_lines: Vec<String> = game_state
     //     .log
@@ -1105,6 +1143,7 @@ pub enum AppAction {
     GameAction(GameAction),
     ScrollGameLog(i8),
     AdjustCurrentState(i8),
+    ChangeHintMode(HintMode),
 }
 
 struct LegendItem {
@@ -1258,6 +1297,7 @@ fn player_node_props(
     name: String,
     hand: Vec<Option<(Option<Card>, Vec<Hint>)>>,
     player_state: PlayerRenderState,
+    hint_mode: HintMode,
 ) -> PlayerNodeProps {
     // let player = &game_state.players[player_index];
 
@@ -1283,6 +1323,7 @@ fn player_node_props(
 
     PlayerNodeProps {
         name,
+        hint_mode: hint_mode,
         hand: slot_props,
         state: player_state,
         // state: match (game_state.turn, command_state) {
@@ -1312,6 +1353,7 @@ struct GameProps {
 
 impl From<HanabiApp> for GameProps {
     fn from(app_state: HanabiApp) -> Self {
+        let hint_mode = app_state.hint_mode;
         match &app_state.client_state {
             HanabiClient::Connecting => todo!(),
             HanabiClient::Loaded(game) => match game {
@@ -1389,6 +1431,7 @@ impl From<HanabiApp> for GameProps {
                                             .map(|h| h.clone().map(|c| (None, c.hints.clone())))
                                             .collect(),
                                         player_state,
+                                        hint_mode,
                                     ),
                                     ClientPlayerView::Teammate { name, hand } => player_node_props(
                                         name.clone(),
@@ -1398,6 +1441,7 @@ impl From<HanabiApp> for GameProps {
                                             })
                                             .collect(),
                                         player_state,
+                                        hint_mode,
                                     ),
                                 }
                             })
@@ -1463,6 +1507,7 @@ impl From<HanabiApp> for GameProps {
                                         .map(|h| h.clone().map(|c| (Some(c.card), c.hints.clone())))
                                         .collect(),
                                     player_state,
+                                    app_state.hint_mode,
                                 )
                             })
                             .collect(),

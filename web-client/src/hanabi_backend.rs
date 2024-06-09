@@ -149,7 +149,7 @@ impl egui::Widget for &mut HanabiBackend {
                 }
 
                 let tf_stroke = if is_crossed_out {
-                    Stroke::new(char_height / 8.0, tf_fg_color)
+                    Stroke::new(char_height / 16.0, Color32::from_gray(160))
                 } else {
                     Stroke::NONE
                 };
