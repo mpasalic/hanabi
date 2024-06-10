@@ -388,7 +388,7 @@ impl LobbyServer {
                                     num_fuses: 3,
                                     num_hints: 8,
                                     starting_player: PlayerIndex(0),
-                                    seed: 0,
+                                    seed: rand::random::<u64>(),
                                 };
                                 game_lobby.status = GameLobbyStatus::Playing(
                                     GameLog::new::<StdRng>(config.clone()),
