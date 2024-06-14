@@ -105,6 +105,12 @@ pub enum HintMode {
 }
 
 #[derive(Clone, Copy)]
+pub enum CardRenderState {
+    Default,
+    Highlighted,
+}
+
+#[derive(Clone, Copy)]
 pub enum CardNodeProps {
     Empty,
     SomeCard(Option<CardFace>, Option<CardSuit>),
@@ -118,6 +124,7 @@ pub struct SlotNodeProps {
     pub unique_not_hints: Vec<Hint>,
     pub all_hints: Vec<Hint>,
     pub card: CardNodeProps,
+    pub card_render_state: CardRenderState,
 }
 pub enum PlayerRenderState {
     CurrentTurn,
@@ -162,7 +169,7 @@ pub fn margin(size: f32) -> taffy::Rect<taffy::LengthPercentageAuto> {
     }
 }
 
-pub fn card_node(card_node: CardNodeProps) -> Node<'static> {
+pub fn card_node(card_node: CardNodeProps, card_render_state: CardRenderState) -> Node<'static> {
     let color = match card_node {
         CardNodeProps::SomeCard(_, Some(suit)) => colorize_suit(suit),
         CardNodeProps::Discarded(Card { suit, .. }) => colorize_suit_dim(suit),
@@ -178,7 +185,10 @@ pub fn card_node(card_node: CardNodeProps) -> Node<'static> {
 
     Block::new()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(match card_render_state {
+            CardRenderState::Default => BorderType::Rounded,
+            CardRenderState::Highlighted => BorderType::Double,
+        })
         .border_style(match card_node {
             CardNodeProps::Discarded(_) => default_style().fg(color),
             _ => default_style().add_modifier(Modifier::BOLD).fg(color),
@@ -238,10 +248,6 @@ pub fn hint_span(hint: &Hint) -> Node<'static> {
         ),
     }
     .into()
-}
-
-pub fn hand_node(card_props: Vec<CardNodeProps>) -> Node<'static> {
-    HStack::new().childs(card_props.into_iter().map(card_node).collect_vec())
 }
 
 pub fn rounded_block(title: Span<'static>) -> Block<'static> {
@@ -316,7 +322,7 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
                 player_props
                     .hand
                     .iter()
-                    .map(|s| card_node(s.card.clone()))
+                    .map(|s| card_node(s.card.clone(), s.card_render_state))
                     .collect_vec(),
             ),
             Block::new()
@@ -561,7 +567,7 @@ pub fn played_cards_tree(board_props: &BoardProps) -> Node<'static> {
                                 .collect_vec(),
                         )]
                     } else {
-                        vec![card_node(CardNodeProps::Empty)]
+                        vec![card_node(CardNodeProps::Empty, CardRenderState::Default)]
                     },
                 )
             })
@@ -669,7 +675,7 @@ pub fn card_pile(direction: FlexDirection, card_props: Vec<CardNodeProps>) -> No
                         inset,
                         ..Stack::default_layout()
                     },
-                    [card_node(card)],
+                    [card_node(card, CardRenderState::Default)],
                 )
             })
             .collect_vec(),

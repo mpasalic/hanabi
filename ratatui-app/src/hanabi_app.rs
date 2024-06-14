@@ -278,7 +278,7 @@ impl HanabiApp {
                     .map(|p| {
                         player_node_props(
                             p.name.clone(),
-                            vec![None; 5],
+                            (0..5).into_iter().map(|_| None).collect_vec(),
                             PlayerRenderState::Default,
                             HintMode::NotHints,
                         )
@@ -1246,7 +1246,11 @@ fn board_node_props(
     }
 }
 
-fn slot_node_props(card: Option<Card>, hints: Vec<Hint>) -> SlotNodeProps {
+fn slot_node_props(
+    card: Option<Card>,
+    hints: Vec<Hint>,
+    card_render_state: CardRenderState,
+) -> SlotNodeProps {
     let face_hint = hints.clone().into_iter().find_map(|h| match h {
         Hint::IsFace(face) => Some(face),
         _ => None,
@@ -1290,12 +1294,13 @@ fn slot_node_props(card: Option<Card>, hints: Vec<Hint>) -> SlotNodeProps {
             })
             .unique()
             .collect(),
+        card_render_state,
     }
 }
 
 fn player_node_props(
     name: String,
-    hand: Vec<Option<(Option<Card>, Vec<Hint>)>>,
+    hand: Vec<Option<SlotNodeProps>>,
     player_state: PlayerRenderState,
     hint_mode: HintMode,
 ) -> PlayerNodeProps {
@@ -1308,8 +1313,8 @@ fn player_node_props(
 
     let slot_props = hand
         .into_iter()
-        .map(|slot| match &slot {
-            Some((card, hints)) => slot_node_props(card.clone(), hints.clone()),
+        .map(|slot| match slot {
+            Some(slot) => slot,
             None => SlotNodeProps {
                 card: CardNodeProps::Empty,
                 all_hints: vec![],
@@ -1317,6 +1322,7 @@ fn player_node_props(
                 suit_hint: None,
                 unique_hints: vec![],
                 unique_not_hints: vec![],
+                card_render_state: CardRenderState::Default,
             },
         })
         .collect_vec();
@@ -1421,23 +1427,50 @@ impl From<HanabiApp> for GameProps {
                                         ) if command_player_index as usize == player_index => {
                                             PlayerRenderState::CurrentSelection
                                         }
+                                        (
+                                            _,
+                                            &CommandBuilder::ConfirmingAction(
+                                                PlayerAction::GiveHint(
+                                                    PlayerIndex(command_player_index),
+                                                    _,
+                                                ),
+                                            ),
+                                        ) if command_player_index as usize == player_index => {
+                                            PlayerRenderState::CurrentSelection
+                                        }
                                         _ => PlayerRenderState::Default,
                                     };
-
+                                // slot_node_props(card.clone(), hints.clone())
                                 match &selected_game_state.players[player_index] {
                                     ClientPlayerView::Me { name, hand } => player_node_props(
                                         name.clone(),
-                                        hand.iter()
-                                            .map(|h| h.clone().map(|c| (None, c.hints.clone())))
+                                        hand.iter().enumerate()
+                                            .map(|(slot_index, h)| {
+                                                h.clone().map(|c| {
+                                                    slot_node_props(None, c.hints.clone(), match  &app_state.command.current_command {                    
+                                                        &CommandBuilder::ConfirmingAction(PlayerAction::PlayCard(SlotIndex(selected_slot_index)) | PlayerAction::DiscardCard(SlotIndex(selected_slot_index))) if slot_index == selected_slot_index => CardRenderState::Highlighted ,
+                                                        _ => CardRenderState::Default,                                           
+                                                    }/* implement for teammates: choosing a card to play or discard */)
+                                                })
+                                            })
                                             .collect(),
                                         player_state,
                                         hint_mode,
                                     ),
                                     ClientPlayerView::Teammate { name, hand } => player_node_props(
                                         name.clone(),
-                                        hand.iter()
-                                            .map(|h| {
-                                                h.clone().map(|c| (Some(c.card), c.hints.clone()))
+                                        hand.iter().enumerate()
+                                            .map(|(slot_index, h)| {
+                                                h.clone().map(|s| {
+                                                    slot_node_props(Some(s.card), s.hints.clone(), match  &app_state.command.current_command {                    
+                                                        &CommandBuilder::ConfirmingAction(PlayerAction::GiveHint(PlayerIndex(hinting_player_index), hint_action)) if player_index == hinting_player_index => match hint_action {
+                                                            HintAction::SameSuit(suit) if s.card.suit == suit => CardRenderState::Highlighted,
+                                                            HintAction::SameFace(face) if s.card.face == face => CardRenderState::Highlighted,
+                                                            _ => CardRenderState::Default,
+                                                        },
+                                                        _ => CardRenderState::Default,                                           
+                                                    })
+                                                })
                                             })
                                             .collect(),
                                         player_state,
@@ -1504,7 +1537,7 @@ impl From<HanabiApp> for GameProps {
                                     selected_game_state.players[player_index]
                                         .hand
                                         .iter()
-                                        .map(|h| h.clone().map(|c| (Some(c.card), c.hints.clone())))
+                                        .map(|h| h.clone().map(|c| slot_node_props(Some(c.card), c.hints.clone(), CardRenderState::Default)))
                                         .collect(),
                                     player_state,
                                     app_state.hint_mode,
