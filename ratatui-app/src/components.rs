@@ -620,6 +620,7 @@ pub fn board_stats_node_tree(board_props: &BoardProps) -> Node<'static> {
             "bombs:".to_string(),
             "\u{f0691} ".repeat(board_props.fuse_remaining as usize),
         ),
+        ("draws".to_string(), board_props.draw_remaining.to_string()),
     ];
     key_value_pairs(data)
 }
