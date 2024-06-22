@@ -17,6 +17,9 @@ use ratatui_app::key_code::KeyCode;
 use ratframe::NewCC;
 use ratframe::RataguiBackend;
 use shared::client_logic::*;
+use shared::model::PlayerAction;
+use shared::model::PlayerIndex;
+use shared::model::SlotIndex;
 use wasm_bindgen::prelude::*;
 use web_sys::{ErrorEvent, MessageEvent, WebSocket};
 mod input;
@@ -508,6 +511,18 @@ impl eframe::App for HelloApp {
 
                                     match result {
                                         EventHandlerResult::PlayerAction(action) => {
+
+                                            let mut optimistic_result = hanabi_app.client_state.clone();
+
+                                            match optimistic_result {
+                                                HanabiClient::Loaded(  HanabiGame::Started { ref mut game_state, .. }) => {
+                                                    game_state.apply_local_mutation(action);
+                                                }
+                                                _ => {}
+                                            }
+                                            
+                                            hanabi_app.update(optimistic_result);
+
                                             self.send_to_server
                                                 .send(ClientToServerMessage::PlayerAction {
                                                     action,
