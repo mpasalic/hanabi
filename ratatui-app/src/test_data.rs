@@ -169,7 +169,6 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
     use shared::model::CardSuit::*;
     use shared::model::ClientPlayerView::*;
     use shared::model::GameEffect::*;
-    use shared::model::GameEvent::PlayerAction;
     use shared::model::Hint::*;
     use shared::model::HintAction::SameFace;
     use shared::model::HintAction::SameSuit;
@@ -228,7 +227,10 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                 Me {
                     name: "Mirza".to_string(),
                     hand: [
-                        Some(HiddenSlot { hints: [].to_vec() }),
+                        Some(HiddenSlot {
+                            hints: [].to_vec(),
+                            draw_number: 0,
+                        }),
                         Some(HiddenSlot {
                             hints: [
                                 IsSuit(White),
@@ -237,6 +239,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                                 IsNotSuit(Blue),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(HiddenSlot {
                             hints: [
@@ -246,9 +249,11 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                                 IsNotSuit(Blue),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(HiddenSlot {
                             hints: [IsSuit(Blue)].to_vec(),
+                            draw_number: 0,
                         }),
                         Some(HiddenSlot {
                             hints: [
@@ -258,6 +263,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                                 IsSuit(Blue),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                     ]
                     .to_vec(),
@@ -271,6 +277,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                                 suit: Red,
                             },
                             hints: [IsSuit(Red), IsNotFace(Two)].to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -284,6 +291,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                                 IsNotFace(Two),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -291,6 +299,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                                 suit: Green,
                             },
                             hints: [].to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -299,6 +308,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                             },
                             hints: [IsNotFace(One), IsFace(Five), IsNotSuit(Red), IsNotFace(Two)]
                                 .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -312,6 +322,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
                                 IsNotFace(Two),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                     ]
                     .to_vec(),
@@ -450,7 +461,6 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
     use shared::model::CardSuit::*;
     use shared::model::ClientPlayerView::*;
     use shared::model::GameEffect::*;
-    use shared::model::GameEvent::PlayerAction;
     use shared::model::Hint::*;
     use shared::model::HintAction::SameFace;
     use shared::model::HintAction::SameSuit;
@@ -504,7 +514,10 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                 Me {
                     name: "mirza".to_string(),
                     hand: [
-                        Some(HiddenSlot { hints: [].to_vec() }),
+                        Some(HiddenSlot {
+                            hints: [].to_vec(),
+                            draw_number: 0,
+                        }),
                         Some(HiddenSlot {
                             hints: [
                                 IsSuit(White),
@@ -513,6 +526,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                                 IsNotSuit(Blue),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(HiddenSlot {
                             hints: [
@@ -522,9 +536,11 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                                 IsNotSuit(Blue),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(HiddenSlot {
                             hints: [IsSuit(Blue)].to_vec(),
+                            draw_number: 0,
                         }),
                         Some(HiddenSlot {
                             hints: [
@@ -534,6 +550,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                                 IsSuit(Blue),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                     ]
                     .to_vec(),
@@ -547,6 +564,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                                 suit: Red,
                             },
                             hints: [IsSuit(Red), IsNotFace(Two)].to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -560,6 +578,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                                 IsNotFace(Two),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -567,6 +586,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                                 suit: Green,
                             },
                             hints: [].to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -575,6 +595,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                             },
                             hints: [IsNotFace(One), IsFace(Five), IsNotSuit(Red), IsNotFace(Two)]
                                 .to_vec(),
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: Card {
@@ -588,6 +609,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
                                 IsNotFace(Two),
                             ]
                             .to_vec(),
+                            draw_number: 0,
                         }),
                     ]
                     .to_vec(),

@@ -44,6 +44,7 @@ pub struct HanabiApp {
     game_log_scroll_adjust: usize,
     game_state_selection: usize,
     hint_mode: HintMode,
+    card_focus: Option<(PlayerIndex, usize)>,
 }
 
 pub enum EventHandlerResult {
@@ -122,6 +123,7 @@ impl HanabiApp {
             game_log_scroll_adjust: 0,
             game_state_selection: 0,
             hint_mode: HintMode::NotHints,
+            card_focus: None,
         }
     }
 
@@ -154,6 +156,7 @@ impl HanabiApp {
     }
 
     pub fn update(&mut self, state: HanabiClient) {
+        
         self.command.current_player = match &state {
             HanabiClient::Loaded(HanabiGame::Started { game_state, .. }) => {
                 game_state.this_client_player_index
@@ -206,6 +209,15 @@ impl HanabiApp {
             AppAction::ChangeHintMode(hint_mode) => {
                 self.hint_mode = hint_mode;
             }
+            
+            AppAction::FocusCard(player_index, slot_index) => {
+                if self.card_focus == Some((player_index, slot_index)) {
+                    self.card_focus = None;
+                } else {
+                    self.card_focus = Some((player_index, slot_index));
+                }
+                
+            },
         }
 
         Ok(EventHandlerResult::Continue)
@@ -287,8 +299,10 @@ impl HanabiApp {
                 },
                 players: players
                     .iter()
-                    .map(|p| {
+                    .enumerate()
+                    .map(|(index, p)| {
                         player_node_props(
+                            PlayerIndex(index),
                             p.name.clone(),
                             (0..5).into_iter().map(|_| None).collect_vec(),
                             PlayerRenderState::Default,
@@ -393,7 +407,7 @@ impl HanabiApp {
                         board_node_tree(game_props.board_render_state),
                     ]),
                 ),
-                self.render_game_log(game_props.game_log)
+                self.render_game_log(game_props.game_log.iter().map(|log| log.log_entries.clone()).flatten().collect_vec())
                     .append_layout(|layout| LayoutStyle {
                         grid_row: line(1),
                         grid_column: line(2),
@@ -442,7 +456,7 @@ impl HanabiApp {
                         ..HStack::default_layout()
                     })
                     .child(
-                        Span::from("History")
+                        Span::from(format!("History"))
                             .style(default_style().bg(SELECTION_COLOR).fg(Color::White)),
                     )
                     .childs(
@@ -606,7 +620,7 @@ impl HanabiApp {
                  (
                     format!(
                         "{}'s turn",
-                        players[game_state.this_client_player_index.0].name
+                        players[game_state.current_turn_player_index.0].name
                     ),
                     vec![LegendItem {
                         desc: "Move Card".to_string(),
@@ -842,10 +856,10 @@ fn generate_game_log(
     game_state: &GameStateSnapshot,
     log: &Vec<GameSnapshotEvent>,
     players: &Vec<OnlinePlayer>,
-    selected_round: Option<u8>,
-) -> Vec<Line<'static>> {
+    selected_turn_index: Option<u8>,
+    highlighted_card_focus: Option<(PlayerIndex, usize)>,
+) -> Vec<GameLogEntryProps> {
     use shared::model::GameEffect as Eff;
-    use shared::model::GameEvent as Ev;
 
     let self_player = game_state.this_client_player_index.0;
 
@@ -1017,31 +1031,71 @@ fn generate_game_log(
             .collect_vec()
     }
 
-    let count_span = |i: u8| -> Span<'static> {
-        let count = format!("{}. ", i + 1);
-        let span = Span::raw(format!("{:<4}", count));
-        if Some(i) == selected_round {
-            span.to_string().bg(SELECTION_COLOR).fg(BACKGROUND_COLOR)
-        } else {
-            span.to_string().fg(DIM_TEXT)
-        }
+    fn outcome_lines(outcome: Option<GameOutcome>) -> Vec<Span<'static>> {
+        match outcome {
+            Some(outcome) => vec![
+                Span::raw("    Game Over: ").fg(TURN_COLOR).bold(),
+                match outcome {
+                    GameOutcome::Win => Span::raw("Victory!").fg(TURN_COLOR).bold(),
+                    GameOutcome::Fail { score } => {
+                        Span::raw(format!("Defeat :( (score = {})", score))
+                            .fg(TURN_COLOR)
+                            .bold()
+                    }
+                }],
+            
+            None => vec![]
+        } 
+    }
+
+    let count_span = |i: u8, render_state: GameLogRenderState| -> Vec<Span<'static>> {
+        let count = format!("{}.", i + 1);
+        
+        let span = Span::raw(format!("{:<3}", count)).fg(match render_state {
+            GameLogRenderState::Default => DIM_TEXT,
+            _ => BACKGROUND_COLOR
+        }).bg(match render_state {
+            GameLogRenderState::CurrentSelection |  GameLogRenderState::CurrentSelectionAndHighlighted => TURN_COLOR,
+            GameLogRenderState::Highlighted => SELECTION_COLOR,
+            _ => BACKGROUND_COLOR
+        });
+
+        let spacing = Span::raw(" ").fg(match render_state {
+            GameLogRenderState::Default => DIM_TEXT,
+            _ => BACKGROUND_COLOR
+        }).bg(match render_state {
+            GameLogRenderState::Highlighted | GameLogRenderState::CurrentSelectionAndHighlighted => SELECTION_COLOR,
+            _ => BACKGROUND_COLOR
+        });
+
+        vec![span, spacing]
+
+        //
+        // match render_state {
+        //     GameLogRenderState::Default => span.fg(DIM_TEXT),
+        //     GameLogRenderState::CurrentSelection => span.to_string().bg(SELECTION_COLOR).fg(BACKGROUND_COLOR),
+        //     GameLogRenderState::Highlighted => span.to_string().bg(SELECTION_COLOR).fg(BACKGROUND_COLOR),
+        // }
     };
 
-    let game_log_iter = log
-        .iter()
-        .enumerate()
-        .map(|(log_index, game_log)| match game_log {
+    fn log_row<'a>(index: Vec<Span<'a>>, spans: Vec<Span<'a>>) -> Vec<Span<'a>> {
+        index.into_iter().chain(spans).collect_vec()
+    }; 
+
+
+    let game_log_lines = |game_event: &GameSnapshotEvent, render_state: GameLogRenderState| -> Vec<Line<'static>> {
+        match game_event {
             GameSnapshotEvent {
-                event:
-                    GameEvent::PlayerAction {
-                        player_index: PlayerIndex(player_index),
-                        action: PlayerAction::PlayCard(SlotIndex(slot_index)),
-                        effects,
-                    },
+                current_turn_count: turn_count,
+                current_turn_player_index: PlayerIndex(player_index),
+                event_player_index,
+                event_action: PlayerAction::PlayCard(SlotIndex(slot_index)),
+                effects,
                 ..
             } => [
+                log_row(
+                count_span(*turn_count, render_state),
                 [
-                    count_span(game_log.snapshot.num_rounds),
                     player_name_span(*player_index),
                     Span::raw(" plays "),
                     slot(*slot_index),
@@ -1049,21 +1103,20 @@ fn generate_game_log(
                     card(card_played(&effects)),
                     result_span(&effects),
                 ]
-                .to_vec(),
+                .to_vec()),
                 extra(&effects),
             ]
             .to_vec(),
             GameSnapshotEvent {
-                event:
-                    GameEvent::PlayerAction {
-                        player_index: PlayerIndex(player_index),
-                        action: PlayerAction::DiscardCard(SlotIndex(slot_index)),
-                        effects,
-                    },
+                current_turn_count: turn_count,
+                current_turn_player_index: PlayerIndex(player_index),
+                event_player_index,
+                event_action: PlayerAction::DiscardCard(SlotIndex(slot_index)),
+                effects,
                 ..
             } => [
-                [
-                    count_span(game_log.snapshot.num_rounds),
+                log_row(
+                count_span(*turn_count, render_state), [
                     player_name_span(*player_index),
                     Span::raw(" dumps "),
                     slot(*slot_index),
@@ -1071,21 +1124,22 @@ fn generate_game_log(
                     card(card_played(&effects)),
                     result_span(&effects),
                 ]
-                .to_vec(),
+                .to_vec()),
                 extra(&effects),
             ]
             .to_vec(),
             GameSnapshotEvent {
-                event:
-                    GameEvent::PlayerAction {
-                        player_index: PlayerIndex(player_index),
-                        action: PlayerAction::GiveHint(PlayerIndex(hinted_index), hint),
-                        effects,
-                    },
+                current_turn_count: turn_count,
+                current_turn_player_index: PlayerIndex(player_index),
+                event_player_index,
+                event_action: PlayerAction::GiveHint(PlayerIndex(hinted_index), hint),
+                effects,
                 ..
-            } => [
+            }
+           => [
+            log_row(
+            count_span(*turn_count, render_state),
                 [
-                    count_span(game_log.snapshot.num_rounds),
                     player_name_span(*player_index),
                     Span::raw(" hints "),
                     player_name_span(*hinted_index),
@@ -1097,103 +1151,123 @@ fn generate_game_log(
                     *hint,
                     &effects,
                 ))
-                .collect_vec(),
+                .collect_vec()),
                 extra(&effects),
             ]
             .to_vec(),
             GameSnapshotEvent {
-                event:
-                    GameEvent::PlayerAction {
-                        player_index: PlayerIndex(player_index),
-                        action: PlayerAction::MoveSlot(_, _, _),
-                        effects,
-                    },
+                current_turn_count: turn_count,
+                current_turn_player_index: PlayerIndex(player_index),
+                event_player_index,
+                event_action: PlayerAction::MoveSlot(_,_,_),
+                effects,
                 ..
             } => {
                 vec![]
             }
-            GameSnapshotEvent {
-                event: Ev::GameOver(outcome),
-                ..
-            } => [[
-                Span::raw("    Game Over: ").fg(TURN_COLOR).bold(),
-                match outcome {
-                    GameOutcome::Win => Span::raw("Victory!").fg(TURN_COLOR).bold(),
-                    GameOutcome::Fail { score } => {
-                        Span::raw(format!("Defeat :( (score = {})", score))
-                            .fg(TURN_COLOR)
-                            .bold()
-                    }
-                },
-            ]
-            .to_vec()]
-            .to_vec(),
-        });
-
-    game_log_iter
-        .flatten()
-        .filter(|v| !v.is_empty())
+            // GameSnapshotEvent {
+            //     event: Ev::GameOver(outcome),
+            //     ..
+            // } => [[
+            //     Span::raw("    Game Over: ").fg(TURN_COLOR).bold(),
+            //     match outcome {
+            //         GameOutcome::Win => Span::raw("Victory!").fg(TURN_COLOR).bold(),
+            //         GameOutcome::Fail { score } => {
+            //             Span::raw(format!("Defeat :( (score = {})", score))
+            //                 .fg(TURN_COLOR)
+            //                 .bold()
+            //         }
+            //     },
+            // ]
+            // .to_vec()]
+            // .to_vec(),
+        }.into_iter()
+        .chain(vec![outcome_lines(game_event.post_event_game_snapshot.outcome)])
+        .filter(|line| !line.is_empty())
         .map(|spans| Line::from(spans))
         .collect_vec()
+    };
 
-    // let log_lines: Vec<String> = game_state
-    //     .log
-    //     .iter()
-    //     .filter_map(|event| match event.to_owned() {
-    //         Ev::PlayerAction(PlayerIndex(index), action) => {
-    //             let player_name = players[index].name.clone().white();
-    //             match action {
-    //                 PlayerAction::PlayCard(SlotIndex(card)) => {}
-    //                 PlayerAction::DiscardCard(SlotIndex(card)) => {
-    //                     Some(format!("{} discarded card #{}", player_name, card))
-    //                 }
-    //                 PlayerAction::GiveHint(
-    //                     PlayerIndex(hinted_player),
-    //                     HintAction::SameFace(face),
-    //                 ) => Some(format!(
-    //                     "{} gave a hint on {}'s {}",
-    //                     player_name,
-    //                     players[hinted_player].name.clone().white(),
-    //                     face.key().bold()
-    //                 )),
-    //                 PlayerAction::GiveHint(
-    //                     PlayerIndex(hinted_player),
-    //                     HintAction::SameSuit(suit),
-    //                 ) => Some(format!(
-    //                     "{} gave a hint on {}'s {}",
-    //                     player_name,
-    //                     players[hinted_player].name.clone().white(),
-    //                     suit.key().fg(colorize_suit(suit)).bold()
-    //                 )),
-    //             }
-    //         }
-    //         Ev::GameEffect(effect) => match effect {
-    //             Eff::AddToDiscrard(Card { suit, face }) => Some(format!(
-    //                 "{} added to discard pile",
-    //                 face.key().fg(colorize_suit(suit)).bold()
-    //             )),
-    //             GameEffect::DrawCard(PlayerIndex(player), _) => {
-    //                 Some(format!("{} drew a card", players[player].name))
-    //             }
-    //             GameEffect::RemoveCard(_, _) => None,
-    //             GameEffect::PlaceOnBoard(Card { face, suit }) => {
-    //                 Some(format!("{}{} added to the board", suit.key(), face.key()))
-    //             }
-    //             GameEffect::HintCard(_, _, _) => None,
-    //             GameEffect::DecHint => None,
-    //             GameEffect::IncHint => Some("+1 hint".to_string()),
-    //             GameEffect::BurnFuse => Some("-1 fuse".to_string()),
-    //             GameEffect::NextTurn(PlayerIndex(player)) => {
-    //                 Some(format!("{}'s turn", players[player].name))
-    //             }
-    //         },
-    //         Ev::GameOver(outcome) => Some(match outcome {
-    //             GameOutcome::Win => format!("Victory!"),
-    //             GameOutcome::Fail { score } => format!("Defeat (score = {})", score),
-    //         }),
-    //     })
-    //     .collect_vec();
-    // log_lines
+    let highlighted_indexes = highlighted_card_focus.map(|(focussed_player_index, focussed_card_num)| {
+        let draw_number = |player_index: PlayerIndex, slot_index: SlotIndex, snapshot: &GameStateSnapshot| {
+            match &snapshot.players[player_index.0] {
+                ClientPlayerView::Me { name, hand } => hand[slot_index.0].as_ref().map(|c| c.draw_number),
+                ClientPlayerView::Teammate { name, hand } => hand[slot_index.0].as_ref().map(|c| c.draw_number),
+            }
+        };
+
+        // let focussed_card_num = draw_number(focussed_player_index, focussed_slot_index, game_state);
+
+        let draw_turn_log_index = log.iter().position(|e| {
+            if (0..e.post_event_game_snapshot.game_config.hand_size).any(|slot_index| {
+                Some(focussed_card_num) == draw_number(focussed_player_index, SlotIndex(slot_index), &e.post_event_game_snapshot)
+            }) {
+                true
+            } else {
+                false
+            }
+        }).unwrap();
+
+        let remove_turn_log_index = log.iter().skip(draw_turn_log_index).find_map(|e| {
+            if (0..e.post_event_game_snapshot.game_config.hand_size).all(|slot_index| {
+                Some(focussed_card_num) != draw_number(focussed_player_index, SlotIndex(slot_index), &e.post_event_game_snapshot)
+            }) {
+                Some(e.current_turn_count)
+            } else {
+                None
+            }
+        });
+
+        let hint_turns = log.iter().filter_map(|e| {
+            if match e.event_action {
+                // PlayerAction::PlayCard(slot_index) => todo!(),
+                // PlayerAction::DiscardCard(slot_index) => todo!(),
+                PlayerAction::GiveHint(player_index, _) if player_index == focussed_player_index => 
+                    e.effects.iter().any(|effect| match effect {
+                        Eff::HintCard(player_index, slot_index, Hint::IsFace(_) | Hint::IsSuit(_)) if Some(focussed_card_num) == draw_number(focussed_player_index, *slot_index, &e.post_event_game_snapshot) => true,
+                        _ => false,
+                    }),
+                
+                _ => false,
+            } {
+                Some(e.current_turn_count)
+            } else {
+                None
+            }
+        }).collect_vec();
+
+        let mut highlighted_indexes = vec![];
+        highlighted_indexes.push(log[draw_turn_log_index].current_turn_count);
+        highlighted_indexes.extend(hint_turns);
+        if let Some(remove_turn_log_index) = remove_turn_log_index {
+            highlighted_indexes.push(remove_turn_log_index);
+        }
+        highlighted_indexes
+
+    }).unwrap_or(vec![]);
+
+
+
+    log.iter().group_by(|event| event.current_turn_count).into_iter().map(|(turn, events)| {
+        let events = events.collect_vec();
+        let last_event = events.last().unwrap().post_event_game_snapshot.clone();
+        let render_state = |game_entry: &GameSnapshotEvent| -> GameLogRenderState {
+            match (selected_turn_index, highlighted_indexes.contains(&game_entry.current_turn_count)) {
+            (Some(selected_turn), true) if selected_turn == turn => GameLogRenderState::CurrentSelectionAndHighlighted,
+            (Some(selected_turn), false) if selected_turn == turn => GameLogRenderState::CurrentSelection,
+            (_, true) => GameLogRenderState::Highlighted,
+            _ => GameLogRenderState::Default,                
+        }
+    };
+        let events = events.into_iter().map(|event| game_log_lines(event, render_state(event))).flatten().collect_vec();
+        GameLogEntryProps {
+            turn_count: turn,
+            log_entries: events,
+            final_state: last_event,
+            render_state: GameLogRenderState::Default
+        }
+    }).collect_vec()
+
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1204,6 +1278,7 @@ pub enum AppAction {
     ScrollGameLog(i8),
     AdjustCurrentState(i8),
     ChangeHintMode(HintMode),
+    FocusCard(PlayerIndex, usize),
 }
 
 struct LegendItem {
@@ -1318,6 +1393,9 @@ fn board_node_props(
 }
 
 fn slot_node_props(
+    player_index: PlayerIndex,
+    slot_index: SlotIndex,
+    card_draw_num: usize,
     card: Option<Card>,
     hints: Vec<Hint>,
     card_render_state: CardRenderState,
@@ -1337,8 +1415,15 @@ fn slot_node_props(
         .unwrap_or((suit_hint, face_hint));
 
     SlotNodeProps {
+        player_index,
+        slot_index,
+        card_id: card_draw_num,
+
         all_hints: hints.clone(),
-        card: CardNodeProps::SomeCard(face, suit),
+        card: CardProps {
+            card: CardNodeProps::SomeCard(face, suit),
+            state: card_render_state,
+        },
         face_hint: hints.clone().into_iter().find(|h| match h {
             Hint::IsFace(_) => true,
             _ => false,
@@ -1365,11 +1450,12 @@ fn slot_node_props(
             })
             .unique()
             .collect(),
-        card_render_state,
+  
     }
 }
 
 fn player_node_props(
+    player_index: PlayerIndex,
     name: String,
     hand: Vec<Option<SlotNodeProps>>,
     player_state: PlayerRenderState,
@@ -1384,16 +1470,20 @@ fn player_node_props(
 
     let slot_props = hand
         .into_iter()
-        .map(|slot| match slot {
+        .enumerate()
+        .map(|(index, slot)| match slot {
             Some(slot) => slot,
             None => SlotNodeProps {
-                card: CardNodeProps::Empty,
+                player_index: player_index,
+                slot_index: SlotIndex(index),
+                card_id: 0,
+                card: CardProps { card: CardNodeProps::Empty, state: CardRenderState::Default },
                 all_hints: vec![],
                 face_hint: None,
                 suit_hint: None,
                 unique_hints: vec![],
                 unique_not_hints: vec![],
-                card_render_state: CardRenderState::Default,
+             
             },
         })
         .collect_vec();
@@ -1420,10 +1510,31 @@ fn player_node_props(
     }
 }
 
+/*
+    game_state: &GameStateSnapshot,
+    log: &Vec<GameSnapshotEvent>,
+    players: &Vec<OnlinePlayer>,
+    selected_round: Option<u8>,
+     */
+
+enum GameLogRenderState {
+    Default,
+    CurrentSelection,
+    Highlighted,
+    CurrentSelectionAndHighlighted
+}
+
+struct GameLogEntryProps {
+    turn_count: u8,
+    log_entries: Vec<Line<'static>>,
+    final_state: GameStateSnapshot,
+    render_state: GameLogRenderState,
+}
+
 struct GameProps {
     board_render_state: BoardProps,
     players: Vec<PlayerNodeProps>,
-    game_log: Vec<Line<'static>>,
+    game_log: Vec<GameLogEntryProps>,
     num_rounds: usize,
     game_state_index: usize,
 }
@@ -1441,38 +1552,67 @@ impl From<HanabiApp> for GameProps {
                     log,
                     ..
                 } => {
-                    let (selected_game_state_index, acting_player, selected_game_state) =
-                        if app_state.game_state_selection == 0 {
-                            (None, game_state.current_turn_player_index, game_state)
-                        } else {
-                            log.iter()
-                                .enumerate()
-                                .find(|(i, ev)| game_state.num_rounds.saturating_sub(ev.snapshot.num_rounds) == app_state.game_state_selection as u8)
-                                .map(|(i, ev)| {
-                                    (
-                                        Some(ev.snapshot.num_rounds),
-                                        match ev.event {
-                                            GameEvent::PlayerAction { player_index, .. } => {
-                                                player_index
-                                            }
-                                            GameEvent::GameOver(_) => {
-                                                ev.snapshot.current_turn_player_index
-                                            }
-                                        },
-                                        &ev.snapshot,
-                                    )
-                                })
-                                .unwrap()
-                        };
+                    let selected_turn_index = game_state.num_rounds.saturating_sub(app_state.game_state_selection as u8);
+                    let merged_game_log = log.clone().into_iter().group_by(|event| event.current_turn_count).into_iter().map(|(t, g)| {
+                        let events = g.collect_vec();
+                        let last_event = events.last().unwrap();
+                        let last_player_acting = last_event.event_player_index;
+                        let ending_state = last_event.post_event_game_snapshot.clone();
+                        // let events = events.into_iter().map(|event| game_log_lines(event, GameLogRenderState::Default)).flatten().collect_vec();
+                        // (last_player_action, last_event)
+                        (last_player_acting, ending_state)
+                    
+                    }).into_iter().collect_vec();
+                    
+                    let (acting_player, selected_game_state) = if app_state.game_state_selection == 0 {
+                        (game_state.current_turn_player_index, game_state)
+                    }  else {
+                        let selected_game_state = &merged_game_log[selected_turn_index as usize - 1].1;
+                        (selected_game_state.current_turn_player_index, selected_game_state)
+                        
+                        // merged_game_log.iter().nth(selected_turn_index as usize).map(|&(player_index, snapshot)| {
+                        //     (player_index, &snapshot)
+                        // }).unwrap()
+                    };
+                    // let selected_game_snapshot_event = log.iter().nth(selected_turn_index as usize).unwrap();
+                    // let acting_player = selected_game_snapshot_event.current_turn_player_index;
+                    // let selected_game_state = &selected_game_snapshot_event.post_event_game_snapshot;
+
+                    // let (acting_player, selected_game_state) = .unwrap_or();
+              
+                    // let (selected_game_state_index, acting_player, selected_game_state) =
+                    //     if app_state.game_state_selection == 0 {
+                    //         (None, game_state.current_turn_player_index, game_state)
+                    //     } else {
+                    //         log.iter()
+                    //             .enumerate()
+                    //             .find(|(i, ev)| game_state.num_rounds.saturating_sub(app_state.game_state_selection as u8) == ev.current_turn_count as u8)
+                    //             .map(|(i, ev)| {
+                    //                 (
+                    //                     Some(ev.snapshot.num_rounds),
+                    //                     match ev.event {
+                    //                         GameEvent::PlayerAction { player_index, .. } => {
+                    //                             player_index
+                    //                         }
+                    //                         GameEvent::GameOver(_) => {
+                    //                             ev.snapshot.current_turn_player_index
+                    //                         }
+                    //                     },
+                    //                     &ev.snapshot,
+                    //                 )
+                    //             })
+                    //             .unwrap()
+                    //     };
 
                     GameProps {
                         num_rounds: game_state.num_rounds as usize,
                         game_state_index: app_state.game_state_selection,
                         game_log: generate_game_log(
-                            game_state,
+                            &selected_game_state,
                             log,
                             players,
-                            selected_game_state_index,
+                            Some(selected_turn_index),
+                            app_state.card_focus
                         ),
                         board_render_state: board_node_props(
                             &selected_game_state.played_cards,
@@ -1515,9 +1655,14 @@ impl From<HanabiApp> for GameProps {
                                     ClientPlayerView::Me { name, hand } => {
                                         let mut slot_props : Vec<_> =  hand.iter().enumerate()
                                         .map(|(slot_index, h)| {
+                                            let slot_index_focussed = app_state.card_focus.map(|(focussed_player_index, focussed_slot_index)| {
+                                                focussed_player_index == PlayerIndex(player_index) && Some(focussed_slot_index) == h.as_ref().map(|c| c.draw_number)
+                                            }).unwrap_or(false);
+
                                             h.clone().map(|c| {
-                                                slot_node_props(None, c.hints.clone(), match  &app_state.command.current_command {                    
-                                                    &CommandBuilder::ConfirmingAction(PlayerAction::PlayCard(SlotIndex(selected_slot_index)) | PlayerAction::DiscardCard(SlotIndex(selected_slot_index))) | &CommandBuilder::MovingCard(MovingCardState::ChangeSlot {  from_slot_index : SlotIndex(selected_slot_index), ..}) if slot_index == selected_slot_index => CardRenderState::Highlighted ,
+                                                slot_node_props(PlayerIndex(player_index), SlotIndex(slot_index), c.draw_number, None, c.hints.clone(), match (&app_state.command.current_command, slot_index_focussed) {                    
+                                                   ( &CommandBuilder::ConfirmingAction(PlayerAction::PlayCard(SlotIndex(selected_slot_index)) | PlayerAction::DiscardCard(SlotIndex(selected_slot_index))) | &CommandBuilder::MovingCard(MovingCardState::ChangeSlot {  from_slot_index : SlotIndex(selected_slot_index), ..}), _) if slot_index == selected_slot_index => CardRenderState::Highlighted ,
+                                                   (_, true) => CardRenderState::Highlighted,
                                                     _ => CardRenderState::Default,                                           
                                                 }/* implement for teammates: choosing a card to play or discard */)
                                             })
@@ -1536,6 +1681,7 @@ impl From<HanabiApp> for GameProps {
                                         }
 
                                         player_node_props(
+                                            PlayerIndex(player_index),
                                         name.clone(),
                                        slot_props,
                                         player_state,
@@ -1543,16 +1689,22 @@ impl From<HanabiApp> for GameProps {
                                     )
                                 },
                                     ClientPlayerView::Teammate { name, hand } => player_node_props(
+                                        PlayerIndex(player_index),
                                         name.clone(),
                                         hand.iter().enumerate()
                                             .map(|(slot_index, h)| {
                                                 h.clone().map(|s| {
-                                                    slot_node_props(Some(s.card), s.hints.clone(), match  &app_state.command.current_command {                    
-                                                        &CommandBuilder::ConfirmingAction(PlayerAction::GiveHint(PlayerIndex(hinting_player_index), hint_action)) if player_index == hinting_player_index => match hint_action {
+                                                    let slot_index_focussed = app_state.card_focus.map(|(focussed_player_index, focussed_slot_index)| {
+                                                        focussed_player_index == PlayerIndex(player_index) && focussed_slot_index == s.draw_number
+                                                    }).unwrap_or(false);
+
+                                                    slot_node_props(PlayerIndex(player_index), SlotIndex(slot_index), s.draw_number, Some(s.card), s.hints.clone(), match  (&app_state.command.current_command, slot_index_focussed) {                    
+                                                    (&CommandBuilder::ConfirmingAction(PlayerAction::GiveHint(PlayerIndex(hinting_player_index), hint_action)), _) if player_index == hinting_player_index => match hint_action {
                                                             HintAction::SameSuit(suit) if s.card.suit == suit => CardRenderState::Highlighted,
                                                             HintAction::SameFace(face) if s.card.face == face => CardRenderState::Highlighted,
                                                             _ => CardRenderState::Default,
                                                         },
+                                                        (_, true) => CardRenderState::Highlighted,
                                                         _ => CardRenderState::Default,                                           
                                                     })
                                                 })
@@ -1572,18 +1724,19 @@ impl From<HanabiApp> for GameProps {
                     revealed_game_log,
                     ..
                 } => {
-                    let max_log = revealed_game_log.log.len();
-                    let (selected_game_state_index, acting_player, selected_game_state) =
-                        revealed_game_log
-                            .log
-                            .iter()
-                            .enumerate()
-                            .rev()
-                            .map(|(i, (acting_player, _, _, game_state))| {
-                                (i, acting_player, game_state)
-                            })
-                            .nth(app_state.game_state_selection.min(max_log - 1))
-                            .unwrap();
+                    let selected_turn_index = game_state.num_rounds.saturating_sub(app_state.game_state_selection as u8);
+                    let merged_game_log = revealed_game_log.log.clone().into_iter().group_by(|event| event.current_turn_count).into_iter().map(|(t, g)| {
+                        let events = g.collect_vec();
+                        let last_event = events.last().unwrap().clone();
+                        // let events = events.into_iter().map(|event| game_log_lines(event, GameLogRenderState::Default)).flatten().collect_vec();
+                        last_event
+                    
+                    }).into_iter().collect_vec();
+                    
+                    let (acting_player, selected_game_state) = 
+                        merged_game_log.iter().nth(selected_turn_index as usize - 1).map(|e| {
+                            (e.post_event_game_state.current_player_index() , &e.post_event_game_state)
+                        }).unwrap();
 
                     GameProps {
                         num_rounds: revealed_game_log.current_game_state().turn as usize,
@@ -1595,11 +1748,8 @@ impl From<HanabiApp> for GameProps {
                                 players.iter().map(|p| p.name.clone()).collect(),
                             ),
                             players,
-                            if app_state.game_state_selection == 0 {
-                                None
-                            } else {
-                                Some(selected_game_state_index as u8)
-                            },
+                            Some(selected_turn_index),
+                            app_state.card_focus
                         ),
                         board_render_state: board_node_props(
                             &selected_game_state.played_cards,
@@ -1618,11 +1768,22 @@ impl From<HanabiApp> for GameProps {
                                 };
 
                                 player_node_props(
+                                    PlayerIndex(player_index),
                                     players[player_index].name.clone(),
                                     selected_game_state.players[player_index]
                                         .hand
                                         .iter()
-                                        .map(|h| h.clone().map(|c| slot_node_props(Some(c.card), c.hints.clone(), CardRenderState::Default)))
+                                        .enumerate()
+                                        .map(|(slot_index, h)| h.clone().map(|c| { 
+                                            let slot_index_focussed = app_state.card_focus.map(|(focussed_player_index, focussed_slot_index)| {
+                                                focussed_player_index == PlayerIndex(player_index) && Some(focussed_slot_index) == h.as_ref().map(|c| c.draw_number)
+                                            }).unwrap_or(false);
+
+                                            slot_node_props(PlayerIndex(player_index), SlotIndex(slot_index), c.draw_number ,Some(c.card), c.hints.clone(), match slot_index_focussed {
+                                             true => CardRenderState::Highlighted ,
+                                             false => CardRenderState::Default
+                                        })
+                                        }))
                                         .collect(),
                                     player_state,
                                     app_state.hint_mode,
