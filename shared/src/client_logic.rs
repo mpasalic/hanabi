@@ -424,7 +424,11 @@ impl GameStateSnapshot {
             ) => {
                 match self.players[player_index] {
                     ClientPlayerView::Me { ref mut hand, .. } => {
-                        hand.swap(from_slot_index, new_slot_index);
+                        if from_slot_index < new_slot_index {
+                            hand[from_slot_index..=new_slot_index].rotate_left(1);
+                        } else {
+                            hand[new_slot_index..=from_slot_index].rotate_right(1);
+                        }
                     }
                     _ => unreachable!("Only the current player can move a card"),
                     // shared::model::ClientPlayerView::Teammate { name, hand } => todo!(),
