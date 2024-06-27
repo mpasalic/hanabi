@@ -5,9 +5,9 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    CardFace, CardSuit, ClientPlayerView, GameConfig, GameEffect, GameEvent, GameOutcome,
-    GameSnapshotEvent, GameState, GameStateSnapshot, HiddenSlot, HintAction, Player, PlayerAction,
-    PlayerIndex, SlotIndex,
+    CardFace, CardSuit, ClientPlayerView, GameConfig, GameEffect, GameOutcome, GameSnapshotEvent,
+    GameState, GameStateSnapshot, HiddenSlot, HintAction, Player, PlayerAction, PlayerIndex,
+    SlotIndex,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -280,10 +280,20 @@ pub fn process_app_action(
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GameLogEvent {
+    pub current_turn_count: u8,
+    pub current_turn_player_index: PlayerIndex,
+    pub event_player_index: PlayerIndex,
+    pub event_action: PlayerAction,
+    pub event_effects: Vec<GameEffect>,
+    pub post_event_game_state: GameState,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GameLog {
     pub config: GameConfig,
     pub initial: GameState,
-    pub log: Vec<(PlayerIndex, PlayerAction, Vec<GameEffect>, GameState)>,
+    pub log: Vec<GameLogEvent>,
 }
 
 impl GameLog {
@@ -295,30 +305,40 @@ impl GameLog {
         }
     }
 
-    pub fn log<'a>(&'a mut self, action: PlayerAction) -> Result<&'a GameState, String> {
-        let mut new_game_state = self.current_game_state().clone();
-        let current_player_index = new_game_state.current_player_index();
+    pub fn log<'a>(
+        &'a mut self,
+        actor: PlayerIndex,
+        action: PlayerAction,
+    ) -> Result<&'a GameLogEvent, String> {
+        let mut current_game_state = self.current_game_state();
+        let current_turn_count = current_game_state.turn;
+        let current_turn_player_index = current_game_state.current_player_index();
 
-        let effects = new_game_state.play(action.clone())?;
+        let effects = current_game_state.play(action.clone())?;
         let logged_effects = effects.clone();
 
-        new_game_state.run_effects(effects)?;
+        current_game_state.run_effects(effects)?;
+        let new_game_state = current_game_state;
 
-        self.log.push((
-            current_player_index,
-            action,
-            logged_effects,
-            new_game_state.clone(),
-        ));
+        let new_log_event = GameLogEvent {
+            current_turn_count,
+            current_turn_player_index,
+            event_player_index: actor,
+            event_action: action,
+            event_effects: logged_effects,
+            post_event_game_state: new_game_state.clone(),
+        };
 
-        Ok(&self.log.last().unwrap().3)
+        self.log.push(new_log_event);
+
+        Ok(&self.log.last().unwrap())
     }
 
     pub fn current_game_state(&self) -> GameState {
-        match self.log.last() {
-            Some((_index, _action, _effects, game)) => game.clone(),
-            None => self.initial.clone(),
-        }
+        self.log
+            .last()
+            .map(|e| e.post_event_game_state.clone())
+            .unwrap_or(self.initial.clone())
     }
 
     pub fn undo(&mut self) {
@@ -332,36 +352,28 @@ impl GameLog {
     ) -> Vec<GameSnapshotEvent> {
         self.log
             .iter()
-            .map(|(log_player_index, action, effects, game_state)| {
-                let game_event = GameEvent::PlayerAction {
-                    player_index: *log_player_index,
-                    action: action.clone(),
-                    effects: effects.clone(),
-                };
-                GameSnapshotEvent {
-                    event: game_event,
-                    snapshot: self.into_client_game_state(
-                        game_state.clone(),
-                        client_player_index,
-                        name.clone(),
-                    ),
-                }
-            })
-            .chain(
-                iter::once(self.current_game_state()).filter_map(|game_state| {
-                    if game_state.outcome.is_some() {
-                        Some(GameSnapshotEvent {
-                            event: GameEvent::GameOver(game_state.outcome.clone().unwrap()),
-                            snapshot: self.into_client_game_state(
-                                game_state.clone(),
-                                client_player_index,
-                                name.clone(),
-                            ),
-                        })
-                    } else {
-                        None
+            .map(
+                |GameLogEvent {
+                     current_turn_count,
+                     current_turn_player_index,
+                     event_player_index,
+                     event_action,
+                     event_effects,
+                     post_event_game_state,
+                 }| {
+                    GameSnapshotEvent {
+                        current_turn_count: *current_turn_count,
+                        current_turn_player_index: *current_turn_player_index,
+                        event_player_index: *event_player_index,
+                        event_action: event_action.clone(),
+                        effects: event_effects.clone(),
+                        post_event_game_snapshot: self.into_client_game_state(
+                            post_event_game_state.clone(),
+                            client_player_index,
+                            name.clone(),
+                        ),
                     }
-                }),
+                },
             )
             .collect_vec()
     }
@@ -391,6 +403,7 @@ impl GameLog {
                                 .map(|h| {
                                     h.as_ref().map(|s| HiddenSlot {
                                         hints: s.hints.clone(),
+                                        draw_number: s.draw_number,
                                     })
                                 })
                                 .collect(),

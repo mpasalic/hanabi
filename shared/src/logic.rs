@@ -348,12 +348,15 @@ impl GameState {
                     self.players[player_index].hand[slot_index].is_none(),
                     "Slot is not empty"
                 );
+                let draw_number = num_cards().saturating_sub(self.draw_pile.len());
+
                 self.players[player_index].hand[slot_index] = Some(Slot {
                     card: self
                         .draw_pile
                         .pop()
                         .ok_or_else(|| "Logic error: No more cards to draw")?,
                     hints: vec![],
+                    draw_number,
                 });
             }
             GameEffect::MarkLastTurn(turn_count) => {
@@ -441,7 +444,7 @@ impl Card {
     }
 }
 
-pub fn num_cards() -> i32 {
+pub fn num_cards() -> usize {
     CardFace::iter()
         .flat_map(|face| {
             CardSuit::iter().map(move |_suit| match face {
@@ -513,6 +516,7 @@ mod tests {
         Some(Slot {
             card: card(face, suit),
             hints: vec![],
+            draw_number: 0,
         })
     }
 
@@ -523,6 +527,7 @@ mod tests {
                 card.map(|card| Slot {
                     card,
                     hints: vec![],
+                    draw_number: 0,
                 })
             })
             .collect()
@@ -658,6 +663,12 @@ mod tests {
             outcome: None,
         };
 
+        let expected_drawed_card_slot = Slot {
+            card: card(One, Red),
+            hints: vec![],
+            draw_number: num_cards() - 3,
+        };
+
         game_state
             .run_effects(vec![GameEffect::DrawCard(PlayerIndex(0), SlotIndex(0))])
             .unwrap();
@@ -667,7 +678,7 @@ mod tests {
             GameState {
                 draw_pile: vec![card(Two, Red), card(Three, Red)],
                 players: vec![
-                    player(&[card_slot(One, Red), card_slot(Five, Blue)]),
+                    player(&[Some(expected_drawed_card_slot), card_slot(Five, Blue)]),
                     player(&[card_slot(Four, Green), card_slot(Five, Green)]),
                 ],
                 ..game_state.clone()
@@ -889,7 +900,8 @@ mod tests {
                             card_slot(Four, Green),
                             Some(Slot {
                                 card: card(Five, Green),
-                                hints: [Hint::IsFace(Five)].to_vec()
+                                hints: [Hint::IsFace(Five)].to_vec(),
+                                draw_number: 0,
                             })
                         ]
                         .to_vec(),
@@ -1386,10 +1398,12 @@ mod tests {
                         Some(Slot {
                             card: card(One, Red),
                             hints: vec![],
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: card(Two, Red),
                             hints: vec![],
+                            draw_number: 0,
                         }),
                     ],
                 },
@@ -1398,10 +1412,12 @@ mod tests {
                         Some(Slot {
                             card: card(One, Blue),
                             hints: vec![],
+                            draw_number: 0,
                         }),
                         Some(Slot {
                             card: card(Two, Blue),
                             hints: vec![],
+                            draw_number: 0,
                         }),
                     ],
                 },

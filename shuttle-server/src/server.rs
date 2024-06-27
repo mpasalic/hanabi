@@ -213,7 +213,10 @@ impl LobbyServer {
 
         for action in game_actions {
             game_log
-                .log(action)
+                .log(
+                    PlayerIndex(action.player_index as usize),
+                    action.player_action.0,
+                )
                 .map_err(|e| LobbyError::InvalidState(e))?;
         }
 
@@ -483,12 +486,24 @@ impl LobbyServer {
                         let turn_index = current_game_state.turn;
                         let PlayerIndex(player_index) = current_game_state.current_player_index();
 
+                        // TODO need to change this once player order is randomized
+                        let existing_player = game_lobby
+                            .players
+                            .iter()
+                            .position(|p| match &p.connection {
+                                ConnectionState::Connected(client_id) => {
+                                    client.client_id == client_id.client_id
+                                }
+                                _ => false,
+                            })
+                            .ok_or(LobbyError::InvalidState("Player not found".to_string()))?;
+
                         let result = game_log
-                            .log(action)
+                            .log(PlayerIndex(existing_player), action)
                             .map_err(|e| LobbyError::InvalidPlayerAction(e))?
                             .clone();
 
-                        if let Some(_) = result.outcome {
+                        if let Some(_) = result.post_event_game_state.outcome {
                             game_lobby.status = GameLobbyStatus::Ended(game_log.clone());
                         }
                         game_lobby.update_players();

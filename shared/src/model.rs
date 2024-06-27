@@ -83,19 +83,13 @@ pub struct GameState {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum GameEvent {
-    PlayerAction {
-        player_index: PlayerIndex,
-        action: PlayerAction,
-        effects: Vec<GameEffect>,
-    },
-    GameOver(GameOutcome),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameSnapshotEvent {
-    pub event: GameEvent,
-    pub snapshot: GameStateSnapshot,
+    pub current_turn_count: u8,
+    pub current_turn_player_index: PlayerIndex,
+    pub event_player_index: PlayerIndex,
+    pub event_action: PlayerAction,
+    pub effects: Vec<GameEffect>,
+    pub post_event_game_snapshot: GameStateSnapshot,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -194,11 +188,13 @@ pub enum Hint {
 pub struct Slot {
     pub card: Card,
     pub hints: Vec<Hint>,
+    pub draw_number: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HiddenSlot {
     pub hints: Vec<Hint>,
+    pub draw_number: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

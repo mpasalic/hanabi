@@ -97,7 +97,7 @@ struct GameConfigRow {
 }
 
 #[derive(Serialize, FromRow)]
-struct GameLogRow {
+pub struct GameLogRow {
     pub game_id: String,
     pub turn_id: i16,
     pub player_index: i16,
@@ -131,15 +131,13 @@ pub async fn get_game_config(pool: &PgPool, game_id: String) -> Result<GameConfi
 pub async fn get_game_actions(
     pool: &PgPool,
     game_id: String,
-) -> Result<Vec<PlayerAction>, sqlx::Error> {
+) -> Result<Vec<GameLogRow>, sqlx::Error> {
     let log = sqlx::query_as::<_, GameLogRow>(
-        "SELECT * FROM game_log WHERE game_id = $1 ORDER BY turn_id ASC",
+        "SELECT * FROM game_log WHERE game_id = $1 ORDER BY turn_id ASC, created_at ASC, id ASC",
     )
     .bind(&game_id)
     .fetch_all(pool)
     .await?;
-
-    let log: Vec<_> = log.into_iter().map(|log| log.player_action.0).collect();
 
     Ok(log)
 }

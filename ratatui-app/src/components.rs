@@ -110,6 +110,11 @@ pub enum CardRenderState {
     Highlighted,
 }
 
+pub struct CardProps {
+    pub card: CardNodeProps,
+    pub state: CardRenderState,
+}
+
 #[derive(Clone, Copy)]
 pub enum CardNodeProps {
     Empty,
@@ -118,13 +123,17 @@ pub enum CardNodeProps {
 }
 
 pub struct SlotNodeProps {
+    pub slot_index: SlotIndex,
+    pub player_index: PlayerIndex,
+
+    pub card: CardProps,
+    pub card_id: usize,
+
     pub suit_hint: Option<Hint>,
     pub face_hint: Option<Hint>,
     pub unique_hints: Vec<Hint>,
     pub unique_not_hints: Vec<Hint>,
     pub all_hints: Vec<Hint>,
-    pub card: CardNodeProps,
-    pub card_render_state: CardRenderState,
 }
 pub enum PlayerRenderState {
     CurrentTurn,
@@ -169,14 +178,19 @@ pub fn margin(size: f32) -> taffy::Rect<taffy::LengthPercentageAuto> {
     }
 }
 
-pub fn card_node(card_node: CardNodeProps, card_render_state: CardRenderState) -> Node<'static> {
-    let color = match card_node {
+pub fn card_node(card_props: &CardProps) -> Node<'static> {
+    let &CardProps {
+        card: card_detail_props,
+        state: card_render_state,
+    } = card_props;
+
+    let color = match card_detail_props {
         CardNodeProps::SomeCard(_, Some(suit)) => colorize_suit(suit),
         CardNodeProps::Discarded(Card { suit, .. }) => colorize_suit_dim(suit),
         _ => Color::Gray,
     };
 
-    let text = match card_node {
+    let text = match card_detail_props {
         CardNodeProps::Empty => " ".not_bold().fg(color),
         CardNodeProps::SomeCard(None, _) => "?".not_bold().fg(color),
         CardNodeProps::SomeCard(Some(f), _) => f.key().bold().fg(color),
@@ -189,7 +203,7 @@ pub fn card_node(card_node: CardNodeProps, card_render_state: CardRenderState) -
             CardRenderState::Default => BorderType::Rounded,
             CardRenderState::Highlighted => BorderType::Double,
         })
-        .border_style(match card_node {
+        .border_style(match card_detail_props {
             CardNodeProps::Discarded(_) => default_style().fg(color),
             _ => default_style().add_modifier(Modifier::BOLD).fg(color),
         })
@@ -282,6 +296,21 @@ pub static CARD_FACE_ORDER: [CardFace; 5] = [
     CardFace::Five,
 ];
 
+pub fn slot_node(slot_props: &SlotNodeProps) -> Node<'static> {
+    card_node(&slot_props.card).touchable(AppAction::FocusCard(
+        slot_props.player_index,
+        slot_props.card_id,
+    ))
+    // VStack::new()
+    //     .layout(LayoutStyle {
+    //         ..VStack::default_layout()
+    //     })
+    //     .childs(vec![
+
+    //         Span::raw(format!("{}", slot_props.card_draw_num)).node(),
+    //     ])
+}
+
 pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
     let player_block = Block::new()
         .borders(Borders::ALL)
@@ -318,13 +347,7 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
             ..Block::default_layout()
         },
         [
-            HStack::new().childs(
-                player_props
-                    .hand
-                    .iter()
-                    .map(|s| card_node(s.card.clone(), s.card_render_state))
-                    .collect_vec(),
-            ),
+            HStack::new().childs(player_props.hand.iter().map(|s| slot_node(s)).collect_vec()),
             Block::new()
                 .borders(Borders::TOP)
                 .border_type(BorderType::Double)
@@ -567,7 +590,10 @@ pub fn played_cards_tree(board_props: &BoardProps) -> Node<'static> {
                                 .collect_vec(),
                         )]
                     } else {
-                        vec![card_node(CardNodeProps::Empty, CardRenderState::Default)]
+                        vec![card_node(&CardProps {
+                            card: CardNodeProps::Empty,
+                            state: CardRenderState::Default,
+                        })]
                     },
                 )
             })
@@ -675,7 +701,10 @@ pub fn card_pile(direction: FlexDirection, card_props: Vec<CardNodeProps>) -> No
                         inset,
                         ..Stack::default_layout()
                     },
-                    [card_node(card, CardRenderState::Default)],
+                    [card_node(&CardProps {
+                        card,
+                        state: CardRenderState::Default,
+                    })],
                 )
             })
             .collect_vec(),
