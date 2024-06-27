@@ -156,6 +156,7 @@ pub enum PlayerAction {
     PlayCard(SlotIndex),
     DiscardCard(SlotIndex),
     GiveHint(PlayerIndex, HintAction),
+    MoveSlot(PlayerIndex, SlotIndex, SlotIndex),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
@@ -178,6 +179,7 @@ pub enum GameEffect {
     NextTurn(u8),
     MarkLastTurn(u8),
     LastTurn,
+    MoveSlot(PlayerIndex, SlotIndex, SlotIndex),
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]

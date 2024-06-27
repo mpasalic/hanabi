@@ -231,6 +231,38 @@ impl GameState {
                     .chain(hinted_effects.into_iter())
                     .collect());
             }
+            PlayerAction::MoveSlot(
+                PlayerIndex(player_index),
+                SlotIndex(from_slot_index),
+                SlotIndex(to_slot_index),
+            ) => {
+                let player = self
+                    .players
+                    .get(player_index)
+                    .ok_or_else(|| "Invalid player index".to_string())?;
+
+                let from_slot = player
+                    .hand
+                    .get(from_slot_index)
+                    .and_then(|s| s.as_ref().map(|s| s))
+                    .ok_or_else(|| "Invalid from slot index".to_string())?;
+
+                let to_slot = player
+                    .hand
+                    .get(to_slot_index)
+                    .and_then(|s| s.as_ref().map(|s| s))
+                    .ok_or_else(|| "Invalid to slot index".to_string())?;
+
+                if from_slot_index == to_slot_index {
+                    return Err("Cannot move slot to itself".to_string());
+                }
+
+                return Ok(vec![GameEffect::MoveSlot(
+                    PlayerIndex(player_index),
+                    SlotIndex(from_slot_index),
+                    SlotIndex(to_slot_index),
+                )]);
+            }
         }
     }
 
@@ -359,6 +391,19 @@ impl GameState {
                 self.turn = self.turn + 1;
                 self.outcome = self.check_game_outcome();
                 // TODO implement (noop for now)
+            }
+            GameEffect::MoveSlot(
+                PlayerIndex(player_index),
+                SlotIndex(from_slot_index),
+                SlotIndex(new_slot_index),
+            ) => {
+                if from_slot_index < new_slot_index {
+                    self.players[player_index].hand[from_slot_index..=new_slot_index]
+                        .rotate_left(1);
+                } else {
+                    self.players[player_index].hand[new_slot_index..=from_slot_index]
+                        .rotate_right(1);
+                }
             }
         }
 
@@ -856,6 +901,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_move_slot_effect() {
+        let mut game_state = GameState {
+            draw_pile: vec![card(One, Red), card(Two, Red), card(Three, Red)],
+            played_cards: vec![],
+            discard_pile: vec![],
+            players: vec![
+                player(&[card_slot(One, Blue), card_slot(Five, Blue)]),
+                player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: None,
+            outcome: None,
+        };
+
+        game_state
+            .run_effects(
+                [GameEffect::MoveSlot(
+                    PlayerIndex(0),
+                    SlotIndex(0),
+                    SlotIndex(1),
+                )]
+                .to_vec(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            game_state,
+            GameState {
+                players: [
+                    player(&[card_slot(Five, Blue), card_slot(One, Blue)]),
+                    player(&[card_slot(Four, Green), card_slot(Five, Green)]),
+                ]
+                .to_vec(),
+                ..game_state.clone()
+            }
+        );
+    }
+
     fn assert_vector_contains_eq(actual: Vec<GameEffect>, expected: Vec<GameEffect>) {
         assert_eq!(
             expected.len(),
@@ -1237,6 +1323,54 @@ mod tests {
                 GameEffect::NextTurn(11),
                 GameEffect::DecHint,
             ],
+        );
+    }
+
+    #[test]
+    fn test_move_slot_action() {
+        let game_state = GameState {
+            draw_pile: vec![],
+            played_cards: vec![
+                card(One, Red),
+                card(Two, Red),
+                card(Three, Red),
+                card(Four, Red),
+            ],
+            discard_pile: vec![],
+            players: vec![
+                player(&[
+                    card_slot(One, Blue),
+                    card_slot(Five, Red),
+                    card_slot(Five, Blue),
+                    card_slot(Three, Blue),
+                ]),
+                player(&[
+                    card_slot(Four, Green),
+                    card_slot(Five, White),
+                    card_slot(Five, Green),
+                    card_slot(Three, Blue),
+                ]),
+            ],
+            remaining_bomb_count: 3,
+            remaining_hint_count: 8,
+            turn: 10,
+            last_turn: Some(12),
+            outcome: None,
+        };
+
+        let effects = game_state.play(PlayerAction::MoveSlot(
+            PlayerIndex(0),
+            SlotIndex(0),
+            SlotIndex(3),
+        ));
+
+        assert_vector_contains_eq(
+            effects.unwrap(),
+            vec![GameEffect::MoveSlot(
+                PlayerIndex(0),
+                SlotIndex(0),
+                SlotIndex(3),
+            )],
         );
     }
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     CardFace, CardSuit, ClientPlayerView, GameConfig, GameEffect, GameEvent, GameOutcome,
-    GameSnapshotEvent, GameState, GameStateSnapshot, HiddenSlot, HintAction, PlayerAction,
+    GameSnapshotEvent, GameState, GameStateSnapshot, HiddenSlot, HintAction, Player, PlayerAction,
     PlayerIndex, SlotIndex,
 };
 
@@ -91,6 +91,17 @@ pub enum CardState {
     ChoosingCard { card_type: CardBuilderType },
 }
 
+#[derive(Debug, Clone)]
+pub enum MovingCardState {
+    ChoosingCard {
+        card_type: CardBuilderType,
+    },
+    ChangeSlot {
+        from_slot_index: SlotIndex,
+        new_slot_index: SlotIndex,
+    },
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum HintBuilderType {
     Suite,
@@ -101,6 +112,15 @@ pub enum HintBuilderType {
 pub enum CardBuilderType {
     Play,
     Discard,
+    Move,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MoveCardDirection {
+    Left,
+    Right,
+    Start,
+    End,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -110,11 +130,13 @@ pub enum GameAction {
     StartHint,
     StartPlay,
     StartDiscard,
+    StartMove,
     SelectPlayer { player_index: u8 },
     SelectSuit(CardSuit),
     SelectFace(CardFace),
     SelectCard(SlotIndex),
     Confirm(bool),
+    SelectSlot(SlotIndex),
 }
 
 #[derive(Debug, Clone)]
@@ -123,11 +145,13 @@ pub enum CommandBuilder {
     Hinting(HintState),
     PlayingCard(CardState),
     DiscardingCard(CardState),
+    MovingCard(MovingCardState),
     ConfirmingAction(PlayerAction),
 }
 
 #[derive(Debug, Clone)]
 pub struct CommandState {
+    pub current_player: PlayerIndex,
     pub current_command: CommandBuilder,
 }
 
@@ -145,6 +169,9 @@ pub fn process_app_action(
         (C::Empty, A::StartDiscard) => C::DiscardingCard(CardState::ChoosingCard {
             card_type: CardBuilderType::Discard,
         }),
+        (C::Empty, A::StartMove) => C::MovingCard(MovingCardState::ChoosingCard {
+            card_type: CardBuilderType::Move,
+        }),
 
         (C::PlayingCard(CardState::ChoosingCard { .. }), A::SelectCard(slot_index)) => {
             C::ConfirmingAction(PlayerAction::PlayCard(slot_index))
@@ -156,6 +183,46 @@ pub fn process_app_action(
 
         (C::Hinting(HintState::ChoosingPlayer), A::SelectPlayer { player_index }) => {
             C::Hinting(HintState::ChoosingHint { player_index })
+        }
+
+        (
+            C::MovingCard(MovingCardState::ChoosingCard {
+                card_type: CardBuilderType::Move,
+            }),
+            A::SelectCard(slot_index),
+        ) => C::MovingCard(MovingCardState::ChangeSlot {
+            from_slot_index: slot_index,
+            new_slot_index: slot_index,
+        }),
+
+        (
+            C::MovingCard(MovingCardState::ChangeSlot {
+                from_slot_index, ..
+            }),
+            A::SelectSlot(new_slot_index),
+        ) => C::MovingCard(MovingCardState::ChangeSlot {
+            from_slot_index,
+            new_slot_index: new_slot_index,
+        }),
+
+        (
+            C::MovingCard(MovingCardState::ChangeSlot {
+                from_slot_index,
+                new_slot_index,
+            }),
+            A::Confirm(true),
+        ) => {
+            return (
+                CommandState {
+                    current_player: state.current_player,
+                    current_command: C::Empty,
+                },
+                Some(PlayerAction::MoveSlot(
+                    state.current_player,
+                    from_slot_index,
+                    new_slot_index,
+                )),
+            )
         }
 
         (C::Hinting(HintState::ChoosingHint { player_index }), A::SelectSuit(suit)) => {
@@ -178,6 +245,7 @@ pub fn process_app_action(
         (C::ConfirmingAction(action), A::Confirm(true)) => {
             return (
                 CommandState {
+                    current_player: state.current_player,
                     current_command: C::Empty,
                 },
                 Some(action),
@@ -189,7 +257,8 @@ pub fn process_app_action(
             C::Hinting(HintState::ChoosingPlayer)
             | C::PlayingCard(CardState::ChoosingCard { .. })
             | C::DiscardingCard(CardState::ChoosingCard { .. })
-            | C::ConfirmingAction(_),
+            | C::ConfirmingAction(_)
+            | C::MovingCard(_),
             A::Undo,
         ) => C::Empty,
 
@@ -203,6 +272,7 @@ pub fn process_app_action(
 
     (
         CommandState {
+            current_player: state.current_player,
             current_command: builder,
         },
         None,
@@ -344,4 +414,27 @@ impl GameLog {
     }
 }
 
-impl GameState {}
+impl GameStateSnapshot {
+    pub fn apply_local_mutation(&mut self, action: PlayerAction) {
+        match action {
+            PlayerAction::MoveSlot(
+                PlayerIndex(player_index),
+                SlotIndex(from_slot_index),
+                SlotIndex(new_slot_index),
+            ) => {
+                match self.players[player_index] {
+                    ClientPlayerView::Me { ref mut hand, .. } => {
+                        if from_slot_index < new_slot_index {
+                            hand[from_slot_index..=new_slot_index].rotate_left(1);
+                        } else {
+                            hand[new_slot_index..=from_slot_index].rotate_right(1);
+                        }
+                    }
+                    _ => unreachable!("Only the current player can move a card"),
+                    // shared::model::ClientPlayerView::Teammate { name, hand } => todo!(),
+                }
+            }
+            _ => {}
+        }
+    }
+}
