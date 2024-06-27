@@ -705,7 +705,7 @@ pub fn board_node_tree(board_props: BoardProps) -> Node<'static> {
         .bg(BACKGROUND_COLOR)
         .title(block_title(
             match (board_props.draw_remaining) {
-                0 => "Draw Pile".to_string(),
+                0 => "Draw Pile - Empty!".to_string(),
                 _ => format!(
                     "Draw Pile - {} Cards Remaining",
                     board_props.draw_remaining.to_string()
