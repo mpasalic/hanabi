@@ -692,7 +692,7 @@ pub fn draw_pile(count: usize) -> Node<'static> {
 pub fn board_node_tree(board_props: BoardProps) -> Node<'static> {
     use taffy::prelude::line;
 
-    fn block_title(s: &str, alignment: Alignment, position: Position) -> Title {
+    fn block_title(s: String, alignment: Alignment, position: Position) -> Title<'static> {
         Title::from(s.fg(BLOCK_COLOR))
             .alignment(alignment)
             .position(position)
@@ -703,10 +703,32 @@ pub fn board_node_tree(board_props: BoardProps) -> Node<'static> {
         .border_type(BorderType::Rounded)
         .border_style(default_style().fg(BLOCK_COLOR))
         .bg(BACKGROUND_COLOR)
-        .title(block_title("Draw Pile", Alignment::Left, Position::Top))
-        .title(block_title("Board", Alignment::Center, Position::Top))
-        .title(block_title("Discards", Alignment::Right, Position::Top))
-        .title(block_title("Stats", Alignment::Left, Position::Bottom))
+        .title(block_title(
+            match (board_props.draw_remaining) {
+                0 => "Draw Pile - Empty!".to_string(),
+                _ => format!(
+                    "Draw Pile - {} Cards Remaining",
+                    board_props.draw_remaining.to_string()
+                ),
+            },
+            Alignment::Left,
+            Position::Top,
+        ))
+        .title(block_title(
+            "Board".to_string(),
+            Alignment::Center,
+            Position::Top,
+        ))
+        .title(block_title(
+            "Discards".to_string(),
+            Alignment::Right,
+            Position::Top,
+        ))
+        .title(block_title(
+            "Stats".to_string(),
+            Alignment::Left,
+            Position::Bottom,
+        ))
         .children(
             LayoutStyle {
                 padding: padding(1.),
