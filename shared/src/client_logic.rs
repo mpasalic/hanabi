@@ -36,6 +36,12 @@ pub enum HanabiGame {
         game_state: GameStateSnapshot,
         log: Vec<GameSnapshotEvent>,
     },
+    Spectate {
+        session_id: String,
+        players: Vec<OnlinePlayer>,
+        game_state: GameStateSnapshot,
+        revealed_game_log: GameLog,
+    },
     Ended {
         session_id: String,
         players: Vec<OnlinePlayer>,
@@ -50,6 +56,10 @@ pub enum ClientToServerMessage {
         player_name: String,
     },
     Join {
+        player_name: String,
+        session_id: String,
+    },
+    Spectate {
         player_name: String,
         session_id: String,
     },

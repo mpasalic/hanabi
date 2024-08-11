@@ -575,6 +575,14 @@ impl HanabiApp {
                         action: AppAction::Quit,
                     }],
                 ),
+                HanabiGame::Spectate { session_id, players, game_state, revealed_game_log } => (
+                    "Just watching... nothing to do...".to_string(),
+                    vec![LegendItem {
+                        desc: format!("Quit but not actually"),
+                        key_code: KeyCode::Esc,
+                        action: AppAction::Quit,
+                    }],
+                ),
             },
         }
     }
@@ -1719,6 +1727,11 @@ impl From<HanabiApp> for GameProps {
                     }
                 }
                 HanabiGame::Ended {
+                    players,
+                    game_state,
+                    revealed_game_log,
+                    ..
+                } | HanabiGame::Spectate {
                     players,
                     game_state,
                     revealed_game_log,
