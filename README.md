@@ -5,20 +5,8 @@ TODO
 - [ ] Lobby UI
 - [ ] Fix reconnection (too aggressive)
 - [ ] Improve Create/Join UI
-- [x] Game log scrolling
-
-### Test run #1
-
-- [ ] BLOCKER: WE NEED CONFIRM ACTION UI
-- [ ] BLOCKER: Mouse coordinate glitchyness on Davids
-- [ ] David: Game log needs more color and stuff
-- [ ] David: Player/card indexes would be nice
-- [ ] David: Private notes
-- [ ] Jeffs client disconnected
-- [x] BLOCKER: Back button doesn't work?
-- [x] (maybe fixed) Scrollbar doesn't work for simon
-- [x] End game state broken
-- [x] IT FUCKING WORKS
+- [ ] Game log needs more color and stuff
+- [ ] Private notes
 
 ## Workspaces
 
