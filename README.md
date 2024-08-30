@@ -33,7 +33,6 @@ TODO
    `just run-web-dev`
 
 - Note: This will auto-recompile on changes within web-client/ but unfortauntely it does not do so for the dependency workspaces. You'll need to restart later
-- TODO Ask Simon how to fix this
 
 3. Load the web client
    `http://127.0.0.1:8080/`
