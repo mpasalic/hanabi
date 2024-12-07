@@ -30,6 +30,7 @@ pub struct AppInput {
     pub session_id: Option<String>,
     pub session_join_url: Option<String>,
     pub server_address: String,
+    pub spectate: bool,
 }
 
 impl Default for AppInput {
@@ -40,6 +41,7 @@ impl Default for AppInput {
             session_id: None,
             session_join_url: None,
             server_address: String::new(),
+            spectate: false,
         }
     }
 }
@@ -325,6 +327,7 @@ impl AppInput {
             session_id,
             session_join_url,
             server_address: url,
+            spectate: false,
         }
     }
 
@@ -344,9 +347,15 @@ impl AppInput {
                     self.input_mode = InputMode::Done;
                     return Ok(ControlFlow::Break(Some(self.display_name.clone())));
                 }
+                KeyCode::Tab => {
+                    self.input_mode = InputMode::Done;
+                    self.spectate = true;
+                    return Ok(ControlFlow::Break(Some(self.display_name.clone())));
+                }
                 KeyCode::Esc => {
                     self.input_mode = InputMode::Done;
                 }
+
                 KeyCode::Backspace => match self.input_mode {
                     InputMode::EditingDisplayName => {
                         self.display_name.pop();

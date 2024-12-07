@@ -22,8 +22,8 @@ use shared::model::PlayerIndex;
 use shared::model::SlotIndex;
 use wasm_bindgen::prelude::*;
 use web_sys::{ErrorEvent, MessageEvent, WebSocket};
-mod input;
 mod hanabi_backend;
+mod input;
 
 use input::key_code_to_char;
 
@@ -79,6 +79,7 @@ pub enum TuiState {
         player_name: String,
         session_id: String,
         server_address: String,
+        spectator: bool,
     },
     Test {
         hanabi_app: HanabiApp,
@@ -215,8 +216,9 @@ impl NewCC for HelloApp {
         // let mut backend = RataguiBackend::new(200, 100);
         // backend.set_font_size(16);
 
-        let session_join_url =
-            session_id.clone().and_then(|s| Some(format!("{}/?session_id={}", web_url.clone(), s)));
+        let session_join_url = session_id
+            .clone()
+            .and_then(|s| Some(format!("{}/?session_id={}", web_url.clone(), s)));
 
         let terminal = Terminal::new(backend).unwrap();
         Self {
@@ -266,7 +268,6 @@ impl eframe::App for HelloApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //call repaint here so that app runs continuously, remove if you dont need that
         ctx.request_repaint();
-
 
         let main_font = FontId::new(
             self.terminal.backend().get_font_size() as f32,
@@ -333,6 +334,7 @@ impl eframe::App for HelloApp {
                                 player_name: player_name.clone(),
                                 session_id: session_id.clone(),
                                 server_address: app_input.server_address.clone(),
+                                spectator: app_input.spectate.clone(),
                             };
                         }
                         None => {
@@ -356,6 +358,7 @@ impl eframe::App for HelloApp {
                         player_name.clone(),
                         None,
                         self.server_to_client_sender.clone(),
+                        false,
                         ctx.clone(),
                     );
                     console_log!("Websocket setup result: {:?}", result);
@@ -389,6 +392,7 @@ impl eframe::App for HelloApp {
                 ref player_name,
                 ref session_id,
                 ref server_address,
+                ref spectator,
             } => {
                 let bindings: Vec<Binding<AppAction>> =
                     hanabi_app.draw(&mut self.terminal).unwrap();
@@ -413,7 +417,6 @@ impl eframe::App for HelloApp {
                             use egui::Event;
 
                             let binding_matched = match e {
-                                
                                   Event::Text(_) | Event::Key { .. } => {
                                     let key = key_code_to_char(e);
 
@@ -520,7 +523,6 @@ impl eframe::App for HelloApp {
                                                 }
                                                 _ => {}
                                             }
-                                            
                                             hanabi_app.update(optimistic_result);
 
                                             self.send_to_server
@@ -578,6 +580,7 @@ impl eframe::App for HelloApp {
                         player_name.clone(),
                         Some(session_id.clone()),
                         self.server_to_client_sender.clone(),
+                        *spectator,
                         ctx.clone(),
                     );
                     console_log!("Websocket setup result: {:?}", result);
@@ -660,6 +663,7 @@ fn setup_websocket(
     player_name: String,
     session_id: Option<String>,
     server_to_client_sender: Sender<ServerToClientMessage>,
+    spectate: bool,
     ctx: egui::Context,
 ) -> Result<WebSocket, JsValue> {
     console_log!("Connecting to websocket: {:?}", url);
@@ -722,9 +726,15 @@ fn setup_websocket(
         None => ClientToServerMessage::CreateGame {
             player_name: player_name.clone(),
         },
-        Some(session_id) => ClientToServerMessage::Join {
-            player_name: player_name.clone(),
-            session_id: session_id,
+        Some(session_id) => match spectate {
+            false => ClientToServerMessage::Join {
+                player_name: player_name.clone(),
+                session_id: session_id,
+            },
+            true => ClientToServerMessage::Spectate {
+                player_name: player_name.clone(),
+                session_id: session_id,
+            },
         },
     })
     .unwrap();

@@ -592,7 +592,7 @@ impl LobbyServer {
                         game_lobby.log.push(format!("{} reconnected", player_name));
                     }
                     _ => {
-                        game_lobby.players.push(SocketPlayer {
+                        game_lobby.spectators.push(SocketPlayer {
                             name: player_name.clone(),
                             connection: ConnectionState::Connected(client.clone()),
                         });
