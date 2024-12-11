@@ -30,18 +30,20 @@ pub enum HanabiGame {
         log: Vec<String>,
         players: Vec<OnlinePlayer>,
     },
-    Started {
+    Playing {
         session_id: String,
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
         log: Vec<GameSnapshotEvent>,
     },
-    Spectate {
+    Spectating {
         session_id: String,
         players: Vec<OnlinePlayer>,
         game_state: GameStateSnapshot,
         revealed_game_log: GameLog,
     },
+
+    // TODO - maybe we don't need this, perhaps when the game is over we are just "spectating"
     Ended {
         session_id: String,
         players: Vec<OnlinePlayer>,
@@ -79,8 +81,15 @@ struct Lobby {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
 pub enum ServerToClientMessage {
-    CreatedGame { session_id: String },
+    CreatedGame {
+        session_id: String,
+    },
     UpdatedGameState(HanabiGame),
+    // Update player and spectator connection statuses
+    UpdatedConnectionStatus {
+        players: Vec<OnlinePlayer>,
+        spectators: Vec<OnlinePlayer>,
+    },
     Error(String),
 }
 

@@ -518,7 +518,7 @@ impl eframe::App for HelloApp {
                                             let mut optimistic_result = hanabi_app.client_state.clone();
 
                                             match optimistic_result {
-                                                HanabiClient::Loaded(  HanabiGame::Started { ref mut game_state, .. }) => {
+                                                HanabiClient::Loaded(  HanabiGame::Playing { ref mut game_state, .. }) => {
                                                     game_state.apply_local_mutation(action);
                                                 }
                                                 _ => {}
@@ -600,6 +600,12 @@ impl eframe::App for HelloApp {
                         }
                         ServerToClientMessage::Error(error) => {
                             console_log!("Got Error... {:?}", error);
+                        }
+                        ServerToClientMessage::UpdatedConnectionStatus {
+                            players,
+                            spectators,
+                        } => {
+                            hanabi_app.update_connections(players, spectators);
                         }
                     },
                     _ => {}

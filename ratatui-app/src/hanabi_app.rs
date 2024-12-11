@@ -41,6 +41,10 @@ pub struct HanabiApp {
     pub exit: bool,
     command: CommandState,
     pub client_state: HanabiClient,
+
+    connected_players: Vec<OnlinePlayer>,
+    connected_spectators: Vec<OnlinePlayer>,
+    
     game_log_scroll_adjust: usize,
     game_state_selection: usize,
     hint_mode: HintMode,
@@ -81,13 +85,15 @@ impl HanabiApp {
             exit: false,
             command: CommandState {
                 current_player: match &game_state {
-                    HanabiClient::Loaded(HanabiGame::Started { game_state, .. }) => {
+                    HanabiClient::Loaded(HanabiGame::Playing { game_state, .. }) => {
                         game_state.this_client_player_index
                     }
                     _ => PlayerIndex(0),
                 },
                 current_command: CommandBuilder::Empty,
             },
+            connected_players: vec![],
+            connected_spectators: vec![],
             client_state: game_state,
             game_log_scroll_adjust: 0,
             game_state_selection: 0,
@@ -126,12 +132,23 @@ impl HanabiApp {
 
     pub fn update(&mut self, state: HanabiClient) {
         self.command.current_player = match &state {
-            HanabiClient::Loaded(HanabiGame::Started { game_state, .. }) => {
+            HanabiClient::Loaded(HanabiGame::Playing { game_state, .. }) => {
                 game_state.this_client_player_index
             }
             _ => PlayerIndex(0),
         };
         self.client_state = state;
+    }
+
+    pub fn update_connections(&mut self, players: Vec<OnlinePlayer>, spectators: Vec<OnlinePlayer>) {
+        self.connected_players = players.into_iter().filter(|s| { match s.connection_status {
+            ConnectionStatus::Connected => true,
+            ConnectionStatus::Disconnected => false,
+        }}).collect();
+        self.connected_spectators = spectators.into_iter().filter(|s: &OnlinePlayer| { match s.connection_status {
+            ConnectionStatus::Connected => true,
+            ConnectionStatus::Disconnected => false,
+        }}).collect();
     }
 
     pub fn handle_action(&mut self, app_action: AppAction) -> BoxedResult<EventHandlerResult> {
@@ -274,10 +291,12 @@ impl HanabiApp {
                             (0..5).into_iter().map(|_| None).collect_vec(),
                             PlayerRenderState::Default,
                             HintMode::NotHints,
+                            self.connected_players.iter().find(|p| p.name.eq(&p.name)).is_some(),
                         )
                     })
                     .collect_vec(),
                 game_log: vec![],
+                spectators: vec![],
             },
             legend_description,
             legend,
@@ -417,48 +436,58 @@ impl HanabiApp {
                         },
                         legend.into_iter().map(game_action_item_tree).collect_vec(),
                     )),
-                HStack::new()
-                    .layout(LayoutStyle {
+                    VStack::new().layout(LayoutStyle{
                         grid_row: line(2),
                         grid_column: line(2),
 
-                        justify_content: Some(JustifyContent::Center),
-                        gap: Size {
-                            width: length(0.),
-                            height: length(0.),
-                        },
-                        ..HStack::default_layout()
-                    })
-                    .child(
-                        Span::from(format!("History"))
-                            .style(default_style().bg(SELECTION_COLOR).fg(Color::White)),
-                    )
-                    .childs(
-                        [
-                            if game_props.game_state_index + 1 < game_props.num_rounds {
-                                Some(LegendItem {
-                                    desc: "".to_string(),
-                                    key_code: KeyCode::Up,
-                                    action: AppAction::AdjustCurrentState(1),
-                                })
-                            } else {
-                                None
-                            },
-                            if game_props.game_state_index > 0 {
-                                Some(LegendItem {
-                                    desc: "".to_string(),
-                                    key_code: KeyCode::Down,
-                                    action: AppAction::AdjustCurrentState(-1),
-                                })
-                            } else {
-                                None
-                            },
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .map(game_action_item_tree)
-                        .collect_vec(),
-                    ),
+                        justify_content: Some(JustifyContent::SpaceBetween),
+
+                        ..VStack::default_layout()
+                    }).child(
+                            HStack::new()
+                                .layout(LayoutStyle {
+                        
+                                justify_content: Some(JustifyContent::Center),
+                                gap: Size {
+                                    width: length(0.),
+                                    height: length(0.),
+                                },
+                                ..HStack::default_layout()
+                        })
+                        .child(
+                            Span::from(format!("History"))
+                                .style(default_style().bg(SELECTION_COLOR).fg(Color::White)),
+                        )
+                        .childs(
+                            [
+                                if game_props.game_state_index + 1 < game_props.num_rounds {
+                                    Some(LegendItem {
+                                        desc: "".to_string(),
+                                        key_code: KeyCode::Up,
+                                        action: AppAction::AdjustCurrentState(1),
+                                    })
+                                } else {
+                                    None
+                                },
+                                if game_props.game_state_index > 0 {
+                                    Some(LegendItem {
+                                        desc: "".to_string(),
+                                        key_code: KeyCode::Down,
+                                        action: AppAction::AdjustCurrentState(-1),
+                                    })
+                                } else {
+                                    None
+                                },
+                            ]
+                            .into_iter()
+                            .flatten()
+                            .map(game_action_item_tree)
+                            .collect_vec(),
+                        ),
+                    ).child(Span::from(format!("Spectators: {}", game_props.spectators.join(", ")))),
+                
+                
+                    
             ],
         )
     }
@@ -535,7 +564,7 @@ impl HanabiApp {
                         },
                     ],
                 ),
-                HanabiGame::Started {
+                HanabiGame::Playing {
                     game_state,
                     players,
                     ..
@@ -549,7 +578,7 @@ impl HanabiApp {
                         action: AppAction::Quit,
                     }],
                 ),
-                HanabiGame::Spectate { .. } => (
+                HanabiGame::Spectating { .. } => (
                     "Just watching... nothing to do...".to_string(),
                     vec![LegendItem {
                         desc: format!("Quit but not actually"),
@@ -1516,6 +1545,7 @@ fn player_node_props(
     hand: Vec<Option<SlotNodeProps>>,
     player_state: PlayerRenderState,
     hint_mode: HintMode,
+    connected: bool,
 ) -> PlayerNodeProps {
     // let player = &game_state.players[player_index];
 
@@ -1547,10 +1577,12 @@ fn player_node_props(
         .collect_vec();
 
     PlayerNodeProps {
-        name,
+        name: name,
         hint_mode: hint_mode,
         hand: slot_props,
         state: player_state,
+        connected: connected,
+
         // state: match (game_state.turn, command_state) {
         //     (PlayerIndex(turn), _) if turn as usize == player_index => {
         //         PlayerRenderState::CurrentTurn
@@ -1595,6 +1627,7 @@ struct GameProps {
     game_log: Vec<GameLogEntryProps>,
     num_rounds: usize,
     game_state_index: usize,
+    spectators: Vec<String>,
 }
 
 impl From<HanabiApp> for GameProps {
@@ -1604,7 +1637,7 @@ impl From<HanabiApp> for GameProps {
             HanabiClient::Connecting => todo!(),
             HanabiClient::Loaded(game) => match game {
                 HanabiGame::Lobby { .. } => todo!(),
-                HanabiGame::Started {
+                HanabiGame::Playing {
                     players,
                     game_state,
                     log,
@@ -1757,6 +1790,7 @@ impl From<HanabiApp> for GameProps {
                                        slot_props,
                                         player_state,
                                         hint_mode,
+                                        true,
                                     )
                                 },
                                     ClientPlayerView::Teammate { name, hand } => player_node_props(
@@ -1783,10 +1817,12 @@ impl From<HanabiApp> for GameProps {
                                             .collect(),
                                         player_state,
                                         hint_mode,
+                                        app_state.connected_players.iter().find(|p| p.name.eq(name)).is_some(),
                                     ),
                                 }
                             })
                             .collect(),
+                        spectators: app_state.connected_spectators.iter().map(|p| p.name.clone()).collect(),
                     }
                 }
                 HanabiGame::Ended {
@@ -1795,7 +1831,7 @@ impl From<HanabiApp> for GameProps {
                     revealed_game_log,
                     ..
                 }
-                | HanabiGame::Spectate {
+                | HanabiGame::Spectating {
                     players,
                     game_state,
                     revealed_game_log,
@@ -1891,9 +1927,11 @@ impl From<HanabiApp> for GameProps {
                                         .collect(),
                                     player_state,
                                     app_state.hint_mode,
+                                    app_state.connected_players.iter().find(|p| p.name.eq(&players[player_index].name)).is_some(),
                                 )
                             })
                             .collect(),
+                        spectators: app_state.connected_spectators.iter().map(|p| p.name.clone()).collect(),
                     }
                 }
             },
