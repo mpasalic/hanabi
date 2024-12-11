@@ -51,6 +51,7 @@ fn main() {
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
+    console_log!("Version: {}", VERSION);
     native_setup(HelloApp::default())
 }
 
@@ -166,6 +167,8 @@ fn get_web_url(_cc: &eframe::CreationContext<'_>) -> String {
 fn get_session_id(_cc: &eframe::CreationContext<'_>) -> Option<String> {
     None
 }
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 impl NewCC for HelloApp {
     /// Called once before the first frame.
