@@ -39,6 +39,7 @@ enum GameLobbyStatus {
 struct GameLobby {
     session_id: SessionId,
     players: Vec<SocketPlayer>,
+    spectators: Vec<SocketPlayer>,
     status: GameLobbyStatus,
     log: Vec<String>,
 }
@@ -48,12 +49,13 @@ impl GameLobby {
         GameLobby {
             session_id: session,
             players: players,
+            spectators: vec![],
             status: GameLobbyStatus::Waiting,
             log: vec![],
         }
     }
 
-    fn update_players(&self) {
+    fn broadcast_game_state(&self) {
         let players: Vec<OnlinePlayer> = self
             .players
             .iter()
@@ -75,7 +77,7 @@ impl GameLobby {
                         log: self.log.clone(),
                         players: players.clone(),
                     },
-                    GameLobbyStatus::Playing(game_log) => HanabiGame::Started {
+                    GameLobbyStatus::Playing(game_log) => HanabiGame::Playing {
                         session_id: self.session_id.0.clone(),
                         players: players.clone(),
                         game_state: game_log.into_client_game_state(
@@ -102,6 +104,80 @@ impl GameLobby {
                     },
                 },
             ));
+        }
+
+        let spectators: Vec<OnlinePlayer> = self
+            .spectators
+            .iter()
+            .map(|p| OnlinePlayer {
+                name: p.name.clone(),
+                connection_status: match p.connection {
+                    ConnectionState::Connected(_) => ConnectionStatus::Connected,
+                    ConnectionState::Disconnected => ConnectionStatus::Disconnected,
+                },
+                is_host: false,
+            })
+            .collect();
+
+        for (index, p) in self.spectators.iter().enumerate() {
+            p.send(ServerToClientMessage::UpdatedGameState(
+                match &self.status {
+                    GameLobbyStatus::Waiting => HanabiGame::Lobby {
+                        session_id: self.session_id.0.clone(),
+                        log: self.log.clone(),
+                        players: players.clone(),
+                    },
+                    GameLobbyStatus::Playing(game_log) | GameLobbyStatus::Ended(game_log) => {
+                        HanabiGame::Spectating {
+                            session_id: self.session_id.0.clone(),
+                            players: players.clone(),
+                            game_state: game_log.into_client_game_state(
+                                game_log.current_game_state(),
+                                PlayerIndex(index),
+                                self.players.iter().map(|p| p.name.clone()).collect(),
+                            ),
+                            revealed_game_log: game_log.clone(),
+                        }
+                    }
+                },
+            ));
+        }
+    }
+
+    fn broadcast_player_state(&self) {
+        let players: Vec<OnlinePlayer> = self
+            .players
+            .iter()
+            .map(|p| OnlinePlayer {
+                name: p.name.clone(),
+                connection_status: match p.connection {
+                    ConnectionState::Connected(_) => ConnectionStatus::Connected,
+                    ConnectionState::Disconnected => ConnectionStatus::Disconnected,
+                },
+                is_host: false,
+            })
+            .collect();
+
+        let spectators: Vec<OnlinePlayer> = self
+            .spectators
+            .iter()
+            .map(|p| OnlinePlayer {
+                name: p.name.clone(),
+                connection_status: match p.connection {
+                    ConnectionState::Connected(_) => ConnectionStatus::Connected,
+                    ConnectionState::Disconnected => ConnectionStatus::Disconnected,
+                },
+                is_host: false,
+            })
+            .collect();
+
+        let message = ServerToClientMessage::UpdatedConnectionStatus {
+            players,
+            spectators,
+        };
+
+        for p in self.players.iter().chain(self.spectators.iter()) {
+            p.send(message.clone())
         }
     }
 
@@ -231,6 +307,7 @@ impl LobbyServer {
                     connection: ConnectionState::Disconnected,
                 })
                 .collect(),
+            spectators: vec![],
             status: match current_state.outcome {
                 Some(_) => GameLobbyStatus::Ended(game_log),
                 None => GameLobbyStatus::Playing(game_log),
@@ -249,6 +326,7 @@ impl LobbyServer {
             lobby
                 .players
                 .iter()
+                .chain(lobby.spectators.iter())
                 .find(|p| match p {
                     SocketPlayer {
                         connection: ConnectionState::Connected(LobbyClient { client_id: id, .. }),
@@ -265,6 +343,7 @@ impl LobbyServer {
             lobby
                 .players
                 .iter()
+                .chain(lobby.spectators.iter())
                 .find(|p| match p {
                     SocketPlayer {
                         connection: ConnectionState::Connected(LobbyClient { client_id: id, .. }),
@@ -291,7 +370,7 @@ impl LobbyServer {
                     if let Some(player) = player {
                         player.connection = ConnectionState::Disconnected;
                     }
-                    game_lobby.update_players();
+                    game_lobby.broadcast_player_state();
                 });
         }
     }
@@ -370,7 +449,8 @@ impl LobbyServer {
                     }
                 }
 
-                game_lobby.update_players();
+                game_lobby.broadcast_game_state();
+                game_lobby.broadcast_player_state();
             }
             ClientToServerMessage::StartGame => {
                 let session_id = self.get_lobby_session_for_client(client.client_id);
@@ -424,7 +504,7 @@ impl LobbyServer {
                                 _ => {}
                             }
 
-                            game_lobby.update_players();
+                            game_lobby.broadcast_game_state();
                         }
                         Entry::Vacant(_) => {}
                     }
@@ -506,13 +586,62 @@ impl LobbyServer {
                         if let Some(_) = result.post_event_game_state.outcome {
                             game_lobby.status = GameLobbyStatus::Ended(game_log.clone());
                         }
-                        game_lobby.update_players();
+                        game_lobby.broadcast_game_state();
 
                         save_action(&self.pool, &session_id, turn_index, action, player_index)
                             .await
                             .map_err(|e| LobbyError::InvalidState(e.to_string()))?;
                     }
                 }
+            }
+            ClientToServerMessage::Spectate {
+                player_name,
+                session_id,
+            } => {
+                if !self
+                    .game_lobbies
+                    .contains_key(&SessionId(session_id.clone()))
+                {
+                    // Should prob have better logic here
+                    // This will be simpler when we have an actual "Create Game" message
+                    let result = self.hydrate(&session_id.clone()).await;
+
+                    match result {
+                        Ok(_) => {
+                            println!("Hydrated game");
+                        }
+                        Err(e) => {
+                            println!("Error hydrating game: {:?}", e);
+                        }
+                    }
+                }
+
+                let game_lobby = self
+                    .game_lobbies
+                    .entry(SessionId(session_id.clone()))
+                    .or_insert(GameLobby::new(SessionId(session_id.clone()), vec![]));
+
+                let existing_spectator = game_lobby
+                    .spectators
+                    .iter_mut()
+                    .find(|p| p.name == player_name);
+
+                match (existing_spectator, &game_lobby.status) {
+                    (Some(SocketPlayer { connection, .. }), _) => {
+                        *connection = ConnectionState::Connected(client.clone());
+                        game_lobby.log.push(format!("{} reconnected", player_name));
+                    }
+                    _ => {
+                        game_lobby.spectators.push(SocketPlayer {
+                            name: player_name.clone(),
+                            connection: ConnectionState::Connected(client.clone()),
+                        });
+                        game_lobby.log.push(format!("{} spectating", player_name));
+                    }
+                }
+
+                game_lobby.broadcast_game_state();
+                game_lobby.broadcast_player_state();
             }
         }
         Ok(())

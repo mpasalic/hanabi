@@ -175,7 +175,7 @@ pub fn generate_example_panic_case_1() -> HanabiGame {
     use shared::model::PlayerAction::*;
     use shared::model::*;
 
-    HanabiGame::Started {
+    HanabiGame::Playing {
         log: vec![],
         session_id: "http://127.0.0.1:8080/?session_id=pink-cow-i4wC".to_string(),
         players: [
@@ -467,7 +467,7 @@ pub fn generate_example_panic_case_2() -> HanabiGame {
     use shared::model::PlayerAction::*;
     use shared::model::*;
 
-    HanabiGame::Started {
+    HanabiGame::Playing {
         log: vec![],
         session_id: "http://127.0.0.1:8080/?session_id=pink-cow-i4wC".to_string(),
         players: [

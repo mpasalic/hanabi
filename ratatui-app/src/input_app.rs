@@ -30,6 +30,7 @@ pub struct AppInput {
     pub session_id: Option<String>,
     pub session_join_url: Option<String>,
     pub server_address: String,
+    pub spectate: bool,
 }
 
 impl Default for AppInput {
@@ -40,6 +41,7 @@ impl Default for AppInput {
             session_id: None,
             session_join_url: None,
             server_address: String::new(),
+            spectate: false,
         }
     }
 }
@@ -53,7 +55,8 @@ struct InputRowLayout {
 #[derive(Debug)]
 struct InputLayout {
     inputs: [[Rect; 2]; 3],
-    footer_head_row: Rect,
+    primary_button_row: Rect,
+    secondary_button_row: Rect,
     footer_row: Rect,
 }
 
@@ -142,6 +145,23 @@ fn layout(frame: Rect) -> InputLayout {
         })
         .unwrap();
 
+    let buttons = tree
+        .new_with_children(
+            Style {
+                flex_direction: FlexDirection::Column,
+                justify_content: Some(JustifyContent::FlexStart),
+                align_items: Some(AlignItems::Center),
+                size: Size {
+                    width: percent(1.),
+                    height: auto(),
+                },
+                flex_grow: 1.,
+                ..Default::default()
+            },
+            &[footer_head, footer_head_2],
+        )
+        .unwrap();
+
     let footer = tree
         .new_with_children(
             Style {
@@ -155,13 +175,14 @@ fn layout(frame: Rect) -> InputLayout {
                 flex_grow: 1.,
                 ..Default::default()
             },
-            &[footer_head, footer_leaf],
+            &[footer_leaf],
         )
         .unwrap();
 
     let containers = input_rows
         .iter()
         .map(|r| r.0)
+        .chain(iter::once(buttons))
         .chain(iter::once(footer))
         .collect::<Vec<NodeId>>();
 
@@ -232,10 +253,23 @@ fn layout(frame: Rect) -> InputLayout {
             })
             .unwrap(),
 
-        footer_head_row: tree
+        primary_button_row: tree
             .layout(footer_head)
             .map(|b| {
-                let parent_footer = tree.layout(footer).unwrap();
+                let parent_footer = tree.layout(buttons).unwrap();
+                ratatui::layout::Rect {
+                    x: b.location.x as u16 + parent_footer.location.x as u16,
+                    y: b.location.y as u16 + parent_footer.location.y as u16,
+                    width: b.size.width as u16,
+                    height: b.size.height as u16,
+                }
+            })
+            .unwrap(),
+
+        secondary_button_row: tree
+            .layout(footer_head_2)
+            .map(|b| {
+                let parent_footer = tree.layout(buttons).unwrap();
                 ratatui::layout::Rect {
                     x: b.location.x as u16 + parent_footer.location.x as u16,
                     y: b.location.y as u16 + parent_footer.location.y as u16,
@@ -293,6 +327,7 @@ impl AppInput {
             session_id,
             session_join_url,
             server_address: url,
+            spectate: false,
         }
     }
 
@@ -312,9 +347,15 @@ impl AppInput {
                     self.input_mode = InputMode::Done;
                     return Ok(ControlFlow::Break(Some(self.display_name.clone())));
                 }
+                KeyCode::Tab => {
+                    self.input_mode = InputMode::Done;
+                    self.spectate = true;
+                    return Ok(ControlFlow::Break(Some(self.display_name.clone())));
+                }
                 KeyCode::Esc => {
                     self.input_mode = InputMode::Done;
                 }
+
                 KeyCode::Backspace => match self.input_mode {
                     InputMode::EditingDisplayName => {
                         self.display_name.pop();
@@ -450,7 +491,20 @@ impl AppInput {
         })
         .alignment(ratatui::layout::Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
-        f.render_widget(join_game_button, layout.footer_head_row);
+        f.render_widget(join_game_button, layout.primary_button_row);
+
+        let spectate_game_button = Paragraph::new("Spectate Game")
+            .style(match false {
+                true => Style::default().fg(Color::Yellow),
+                _ => Style::default(),
+            })
+            .alignment(ratatui::layout::Alignment::Center)
+            .block(Block::default().borders(Borders::ALL));
+
+        match self.session_id {
+            Some(_) => f.render_widget(spectate_game_button, layout.secondary_button_row),
+            None => {}
+        }
 
         let footer_spans = vec![
             Span::raw("Press "),

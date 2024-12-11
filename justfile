@@ -23,6 +23,9 @@ build-release:
 serve: build
   cargo shuttle run
 
+serve-external:
+  cargo shuttle run --external
+
 # Deploys the server to the production shuttle server
 release: build-release
   cargo shuttle deploy

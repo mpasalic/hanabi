@@ -146,6 +146,7 @@ pub struct PlayerNodeProps {
     pub hand: Vec<SlotNodeProps>,
     pub state: PlayerRenderState,
     pub hint_mode: HintMode,
+    pub connected: bool,
 }
 
 pub struct BoardProps {
@@ -326,13 +327,24 @@ pub fn player_node(player_props: PlayerNodeProps) -> Node<'static> {
             }
             _ => Style::default().fg(Color::White),
         })
-        .title(
-            format!("{}", player_props.name.clone()).set_style(match player_props.state {
-                PlayerRenderState::CurrentTurn => Style::default().bold(),
-                PlayerRenderState::CurrentSelection => Style::default().bold().fg(BACKGROUND_COLOR),
-                _ => Style::default(),
-            }),
-        )
+        .title(Line::from(vec![
+            Span::from(format!("{}", player_props.name.clone()).set_style(
+                match player_props.state {
+                    PlayerRenderState::CurrentTurn => Style::default().bold(),
+                    PlayerRenderState::CurrentSelection => {
+                        Style::default().bold().fg(BACKGROUND_COLOR)
+                    }
+                    _ => Style::default(),
+                },
+            ))
+            .into(),
+            Span::from("\u{f444} ")
+                .style(Style::default().fg(match player_props.connected {
+                    true => Color::Green,
+                    false => Color::Red,
+                }))
+                .into(),
+        ]))
         .title_alignment(Alignment::Center);
 
     player_block.children(
