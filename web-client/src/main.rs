@@ -51,7 +51,7 @@ fn main() {
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
-    console_log!("Version: {}", VERSION);
+    console_log!("Protocol: '{:?}'", VERSION);
     native_setup(HelloApp::default())
 }
 
