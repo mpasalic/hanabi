@@ -24,6 +24,6 @@ jobs:
       - name: Build Deploy Files
         working-directory: web-client
         run: trunk build --release
-      - uses: shuttle-hq/deploy-action@main
+      - uses: shuttle-hq/deploy-action@legacy
         with:
           deploy-key: ${{ secrets.SHUTTLE_API_KEY }}
