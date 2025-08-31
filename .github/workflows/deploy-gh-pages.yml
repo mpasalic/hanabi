@@ -5,6 +5,10 @@ on:
   # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
+  pull_request:
+    paths:
+      - ".github/deploy-gh-pages.yml"
+      - "web-client/**"
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
