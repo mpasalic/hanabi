@@ -1,5 +1,5 @@
 # Sample workflow for building and deploying a Jekyll site to GitHub Pages
-name: Deploy Jekyll with GitHub Pages dependencies preinstalled
+name: Deploy Web Client GitHub Page
 
 on:
   # Runs on pushes targeting the default branch
@@ -22,18 +22,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Build job
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          toolchain: stable
+      - uses: jetli/trunk-action@v0.5.0
+        with:
+          # Optional version of trunk to install(eg. 'v0.19.1', 'latest')
+          version: "latest"
+      - name: Build Deploy Files
+        working-directory: web-client
+        run: trunk build --release
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@v1
         with:
-          source: ./
+          source: ./dist
           destination: ./_site
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

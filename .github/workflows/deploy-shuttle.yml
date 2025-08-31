@@ -1,4 +1,4 @@
-name: Deploy
+name: Deploy Shuttle Server
 
 on:
   # We have limited deploys with free shuttle.rs plan, so we can just rely on doing this manually for now.
