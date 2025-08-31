@@ -1,16 +1,19 @@
 # Hanabi
 [Hanabi](https://en.wikipedia.org/wiki/Hanabi_(card_game)) is a cooperative card game where players are only aware of other players cards and can only communicate with each other through a system of hints that reveal limited information. The objective is to play a series of cards in the correct sequential order in order to complete all sets, resulting in fireworks (Hanabi is a japenese word for "fireworks"). Think multiplayer solataire!
 
-This version of Hanabi is a multiplayer web app, built in Rust using the [ratatui](https://ratatui.rs/) terminal crate and [egui] UI framework crate (https://github.com/gold-silver-copper/egui_ratatui) to render WASM for a retro-feeling Hanabi game.
+This version of Hanabi is a multiplayer web app, built in Rust using the [ratatui](https://ratatui.rs/) and [egui](https://github.com/gold-silver-copper/egui_ratatui) for a terminal-like experience in the browser, connected to a axum websocket server hosted on [shuttle](shuttle.rs).
 
-## Demo
+## How to play
+
+Web Client Demo: https://mpasalic.github.io/hanabi
+* **Note:** Lobby capabilities are very basic. To start a game with friends, [open Hanabi](https://mpasalic.github.io/hanabi) and press [Enter] to create a game. This will redirect to a new session. The invite others, share the URL in your browser. Once everyone has joined, press [S] to start the game. Enjoy!
 
 <img width="1485" height="764" alt="hanabi-screenshot" src="https://github.com/user-attachments/assets/6ac1fb4e-ebe9-4b3c-8daa-ecbe367e4288" />
 
-**Warning**
-* The current version of this app is fairly limited in terms of "lobby" capabilities. In order to start a game with other players, you must share the generated URL after "creating" a game. When the link is opened, they will join your game.
-* There is minimal security or cheating protection built-in at the current moment. Players can rejoin the game and take over the spot as long as their chosen username is the same. Thus, each player should pick a unique name!
+**Imporant notes**
+* There is no authentication or any security that prevents impersonation. If anyone gets disconnected, simply open the session URL again and choose the same name (it is persisted to make it easier). This also means everyone needs a unique name, or else the game will consider them the same person!
 
+# Development
 ## Workspaces
 
 - `web-client/` this is the EGui wrapper client to serve a app through the web using WebAssembly
