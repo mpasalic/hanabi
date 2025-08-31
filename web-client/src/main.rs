@@ -384,7 +384,7 @@ impl eframe::App for HelloApp {
                                 // o.copied_text =
                                 //     format!("{}/?session_id={}", self.web_url, session_id);
                                 o.open_url = Some(OpenUrl {
-                                    url: format!("/?session_id={}", session_id),
+                                    url: format!("{}?session_id={}", self.web_url, session_id),
                                     new_tab: false,
                                 })
                             });
