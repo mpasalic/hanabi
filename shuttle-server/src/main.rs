@@ -5,7 +5,7 @@ use crate::server::{ClientId, LobbyError};
 
 use axum::{
     extract::{
-        ws::{Message, WebSocket},
+        ws::{Message, Utf8Bytes, WebSocket},
         WebSocketUpgrade,
     },
     response::IntoResponse,
@@ -21,6 +21,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tower_http::services::ServeDir;
+use tracing::info;
 
 struct ServerStateSchema {
     clients_count: usize,
@@ -31,21 +32,30 @@ type ServerState = Arc<Mutex<ServerStateSchema>>;
 
 #[shuttle_runtime::main]
 async fn main(#[shuttle_shared_db::Postgres] pool: PgPool) -> shuttle_axum::ShuttleAxum {
+    info!("Starting server...");
+
+    info!("Running migrations...");
     sqlx::migrate!()
         .run(&pool)
         .await
         .map_err(CustomError::new)?;
 
+    info!("Migrations completed successfully.");
+
+    info!("Creating server state...");
     let state = Arc::new(Mutex::new(ServerStateSchema {
         clients_count: 0,
         client_map: HashMap::new(),
         lobby_server: LobbyServer::new(pool),
     }));
 
+    info!("Server state created successfully.");
     let router = Router::new()
         .route("/websocket", get(websocket_handler))
-        .nest_service("/", ServeDir::new("dist"))
+        .fallback_service(ServeDir::new("dist"))
         .layer(Extension(state));
+    info!("Router configured successfully.");
+    info!("Server is ready to accept connections.");
 
     Ok(router.into())
 }
@@ -83,7 +93,7 @@ async fn websocket(stream: WebSocket, state: ServerState) {
                 let message = serde_json::to_string(&m).expect("json");
 
                 println!("Sending message to {:?}: {}", client_id_clone, message);
-                Ok(Message::Text(message))
+                Ok(Message::Text(Utf8Bytes::from(message)))
             })
             .forward(client_ws_sender)
             .map(|result| {

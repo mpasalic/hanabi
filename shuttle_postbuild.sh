@@ -1,0 +1,1 @@
+# cd web-client && trunk clean && trunk build --release

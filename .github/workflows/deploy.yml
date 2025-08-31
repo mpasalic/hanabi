@@ -24,6 +24,7 @@ jobs:
       - name: Build Deploy Files
         working-directory: web-client
         run: trunk build --release
-      - uses: shuttle-hq/deploy-action@main
+      - uses: shuttle-hq/deploy-action@v2
         with:
-          deploy-key: ${{ secrets.SHUTTLE_API_KEY }}
+          shuttle-api-key: ${{ secrets.SHUTTLE_API_KEY }}
+          project-id: proj_01K375WGA3APV1VWW2MKKMFHB0
