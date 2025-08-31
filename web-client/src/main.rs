@@ -137,7 +137,7 @@ fn get_websocket_url(_cc: &eframe::CreationContext<'_>) -> String {
 
 #[cfg(target_arch = "wasm32")]
 fn get_web_url(cc: &eframe::CreationContext<'_>) -> String {
-    let origin = &cc.integration_info.web_info.location.origin;
+    let origin = &cc.integration_info.web_info.location.url;
     return origin.clone();
 }
 
@@ -225,7 +225,7 @@ impl NewCC for HelloApp {
 
         let session_join_url = session_id
             .clone()
-            .and_then(|s| Some(format!("{}/?session_id={}", web_url.clone(), s)));
+            .and_then(|s| Some(format!("{}?session_id={}", web_url.clone(), s)));
 
         let terminal = Terminal::new(backend).unwrap();
         Self {
