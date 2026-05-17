@@ -10,12 +10,18 @@ All common workflows are in `justfile` — `just --list` prints them.
 - `just test` — `just build` then `cargo test` (most tests live in `shared/`)
 - `cargo test -p shared` / `cargo test -p ratatui-app` — scope tests to one workspace crate
 - `cargo test -p shared <test_name>` — run a single test by name
-- `just serve` — build + `cargo run -p server`. Needs `DATABASE_URL` in env (or a `.env` at repo root). Serves websocket at `/websocket` and the prebuilt `dist/` at `/` on `:8080`.
-- `just run` — `trunk serve --open` the web client on `:8080`, proxying `/websocket` to a local server on `:8080`. Auto-recompiles on `web-client/` changes only (not `shared/` or `ratatui-app/`).
+- `just serve` — build + `cargo run -p server`. Depends on `just db-init` so the worktree's database exists first. Serves websocket at `/websocket` and the prebuilt `dist/` at `/` on `$PORT`.
+- `just run` — `trunk serve --open` the web client on `$TRUNK_PORT`, proxying `/websocket` to a local server on `$PORT`. Auto-recompiles on `web-client/` changes only (not `shared/` or `ratatui-app/`).
 - `just run-release` — same, but proxies to the deployed Fly.io server (`wss://hanabi-tui.fly.dev/websocket`).
+- `just info` — print the resolved per-worktree values: `PORT` (server), `TRUNK_PORT` (web dev), `WORKTREE_DB`, `DATABASE_URL`.
+- `just db` — start the shared `hanabi-pg` Postgres container (one container shared across all worktrees, on `:5432`).
+- `just db-init` — idempotently create this worktree's database (`hanabi_<slug>`) inside the shared container.
+- `just db-drop` — drop only this worktree's database; `just db-reset` wipes the shared container and ALL worktree DBs.
 - `just build-release` — release WASM build for the web client.
 - `just release` — `just build-release` then `flyctl deploy`.
 - `just logs` — tail Fly.io logs.
+
+The justfile derives `PORT`, `TRUNK_PORT`, `WORKTREE_DB`, and `DATABASE_URL` from a hash of the working directory so multiple worktrees can run in parallel without colliding. Per-worktree `.env` values (loaded via `set dotenv-load := true`) and explicit env vars override the derived defaults. Don't hardcode `:8080` in docs or code — read the resolved value from `just info`.
 
 ## Architecture
 
@@ -34,7 +40,7 @@ This is a Cargo workspace for a multiplayer Hanabi card game. Authoritative game
 ### Data flow
 
 1. Browser loads the WASM bundle; `HelloApp::new` reads `session_id` from the URL query string and the persisted `player_name` from eframe storage.
-2. Websocket opens to `wss://{current_host}/websocket` (or `ws://` for http). In production this is the Fly app itself; locally it's `127.0.0.1:8080`.
+2. Websocket opens to `wss://{current_host}/websocket` (or `ws://` for http). In production this is the Fly app itself; locally it's `127.0.0.1:$TRUNK_PORT` (the trunk dev server proxies `/websocket` through to the server on `$PORT`).
 3. Client sends `CreateGame` / `Join` / `Spectate` as the init message, then `PlayerAction` / `StartGame` while playing.
 4. Server validates via `shared::logic`, persists the action to Postgres (`save_action`), and broadcasts `UpdatedGameState(HanabiGame)` or `Error(String)` to affected clients. `UpdatedConnectionStatus` is separate.
 5. Client applies an **optimistic local mutation** (`GameStateSnapshot::apply_local_mutation`) before round-tripping — the authoritative snapshot from the server then replaces it.
@@ -64,7 +70,7 @@ Full reference: [`TESTING.md`](TESTING.md). Quick decision tree for "where does 
 | Wire protocol, websocket upgrade, Axum router | `server/tests/e2e_websocket.rs` (real `tokio-tungstenite`) |
 | `web-client/` (WASM shell, egui adapter) | No automated coverage — verify manually in browser |
 
-Default to the cheapest layer that catches the regression. Snapshot tests use `insta` — update them with `cargo insta accept` (or `cargo insta review` for interactive). All test fixtures and the `GameStateSnapshotBuilder` live in `shared/src/test_data.rs` behind the `test-helpers` Cargo feature; consume them from any crate's `[dev-dependencies]` via `shared = { path = "../shared", features = ["test-helpers"] }`. The Postgres-backed test reads `TEST_DATABASE_URL` and silently skips if unset — for local runs, `just db-init` then export it pointing at `hanabi_$WORKTREE_DB`.
+Default to the cheapest layer that catches the regression. Snapshot tests use `insta` — update them with `cargo insta accept` (or `cargo insta review` for interactive). All test fixtures and the `GameStateSnapshotBuilder` live in `shared/src/test_data.rs` behind the `test-helpers` Cargo feature; consume them from any crate's `[dev-dependencies]` via `shared = { path = "../shared", features = ["test-helpers"] }`. The Postgres-backed test reads `TEST_DATABASE_URL` and silently skips if unset — for local runs, `just db-init` then export it pointing at `$WORKTREE_DB` (e.g. `postgresql://postgres:postgres@127.0.0.1:5432/$WORKTREE_DB`).
 
 ## Deployment
 
