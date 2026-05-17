@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4f8bcf9bf9a2308914e30e8f33dc4040994a264ccd3f287d82707f8fbba517d3 # shrinks to seed = 0, actions = [DiscardCard(SlotIndex(0))]

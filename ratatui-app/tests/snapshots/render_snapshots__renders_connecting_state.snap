@@ -1,0 +1,6 @@
+---
+source: ratatui-app/tests/render_snapshots.rs
+expression: rendered
+snapshot_kind: text
+---
+                 Connecting... (yes spelled correctly this time)

@@ -1,20 +1,15 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use rand::rngs::StdRng;
 use shared::client_logic::*;
 use shared::model::GameConfig;
 use shared::model::PlayerIndex;
-use sqlx::PgPool;
 use std::hash::{Hash, Hasher};
 use tokio::sync::mpsc;
 
-use crate::model::create_game;
-use crate::model::generate_unique_game_id;
-use crate::model::get_game_actions;
-use crate::model::get_game_config;
-use crate::model::get_players;
-use crate::model::save_action;
+use crate::model::Database;
 
 #[derive(Debug, Clone)]
 pub struct LobbyClient {
@@ -249,19 +244,19 @@ impl Hash for SocketPlayer {
 
 pub struct LobbyServer {
     game_lobbies: HashMap<SessionId, GameLobby>,
-    pool: PgPool,
+    db: Arc<dyn Database>,
 }
 
 #[derive(Debug)]
 pub enum LobbyError {
     InvalidState(String),
     InvalidPlayerAction(String),
-    SqlError(sqlx::Error),
+    Database(anyhow::Error),
 }
 
-impl From<sqlx::Error> for LobbyError {
-    fn from(e: sqlx::Error) -> Self {
-        LobbyError::SqlError(e)
+impl From<anyhow::Error> for LobbyError {
+    fn from(e: anyhow::Error) -> Self {
+        LobbyError::Database(e)
     }
 }
 
@@ -271,19 +266,19 @@ impl From<sqlx::Error> for LobbyError {
 // }
 
 impl LobbyServer {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(db: Arc<dyn Database>) -> Self {
         LobbyServer {
             game_lobbies: HashMap::new(),
-            pool,
+            db,
         }
     }
 
     pub async fn hydrate(&mut self, game_id: &String) -> Result<(), LobbyError> {
-        let game_config = get_game_config(&self.pool, game_id.clone()).await?;
+        let game_config = self.db.get_game_config(game_id).await?;
 
-        let game_actions = get_game_actions(&self.pool, game_id.clone()).await?;
+        let game_actions = self.db.get_game_actions(game_id).await?;
 
-        let players = get_players(&self.pool, game_id.clone()).await?;
+        let players = self.db.get_players(game_id).await?;
 
         let mut game_log = GameLog::new::<StdRng>(game_config.clone());
 
@@ -291,7 +286,7 @@ impl LobbyServer {
             game_log
                 .log(
                     PlayerIndex(action.player_index as usize),
-                    action.player_action.0,
+                    action.player_action,
                 )
                 .map_err(|e| LobbyError::InvalidState(e))?;
         }
@@ -382,7 +377,7 @@ impl LobbyServer {
     ) -> Result<(), LobbyError> {
         match message {
             ClientToServerMessage::CreateGame { player_name } => {
-                let session_id = generate_unique_game_id(&self.pool).await?;
+                let session_id = self.db.generate_unique_game_id().await?;
 
                 let game_lobby = self
                     .game_lobbies
@@ -489,17 +484,17 @@ impl LobbyServer {
                                     status: GameLobbyStatus::Playing(game_log),
                                     ..
                                 } => {
-                                    create_game(
-                                        &self.pool,
-                                        session_id.clone(),
-                                        &game_log.config,
-                                        &players
-                                            .iter()
-                                            .map(|p| p.name.clone())
-                                            .collect::<Vec<String>>(),
-                                    )
-                                    .await
-                                    .map_err(|e| LobbyError::InvalidState(e.to_string()))?;
+                                    self.db
+                                        .create_game(
+                                            session_id,
+                                            &game_log.config,
+                                            &players
+                                                .iter()
+                                                .map(|p| p.name.clone())
+                                                .collect::<Vec<String>>(),
+                                        )
+                                        .await
+                                        .map_err(|e| LobbyError::InvalidState(e.to_string()))?;
                                 }
                                 _ => {}
                             }
@@ -588,7 +583,8 @@ impl LobbyServer {
                         }
                         game_lobby.broadcast_game_state();
 
-                        save_action(&self.pool, &session_id, turn_index, action, player_index)
+                        self.db
+                            .save_action(&session_id, turn_index, action, player_index)
                             .await
                             .map_err(|e| LobbyError::InvalidState(e.to_string()))?;
                     }

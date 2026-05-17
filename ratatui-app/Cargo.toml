@@ -9,3 +9,9 @@ itertools = "0.12.1"
 ratatui = { version = "0.26.1", default-features = false, features = ["unstable"] }
 taffy = "0.4.3"
 unicode-width = "0.1.12"
+
+[dev-dependencies]
+# Pull in the shared crate's test fixtures + builders. The `test-helpers`
+# feature gate keeps them out of release binaries.
+shared = { path = "../shared", features = ["test-helpers"] }
+insta = "1"

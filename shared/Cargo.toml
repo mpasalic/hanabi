@@ -3,6 +3,11 @@ name = "shared"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Fixtures, builders, and helper functions used by tests across the workspace.
+# Off by default so production builds don't pull them in.
+test-helpers = []
+
 [dependencies]
 strum = "0.25.0"
 strum_macros = "0.25.2"
@@ -11,3 +16,6 @@ enum-map = "2.6.1"
 rand = "0.8.5"
 serde = { version = "1.0.200", features = ["serde_derive"] }
 assert_matches = "1.5.0"
+
+[dev-dependencies]
+proptest = "1"

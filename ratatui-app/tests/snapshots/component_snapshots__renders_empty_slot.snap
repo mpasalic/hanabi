@@ -1,0 +1,8 @@
+---
+source: ratatui-app/tests/component_snapshots.rs
+expression: "render_node(card, 5, 3)"
+snapshot_kind: text
+---
+╭─╮  
+│ │  
+╰─╯

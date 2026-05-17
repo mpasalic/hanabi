@@ -29,7 +29,7 @@ This is a Cargo workspace for a multiplayer Hanabi card game. Authoritative game
   - `client_logic.rs` — client-visible projections (`GameStateSnapshot`, `HanabiGame::{Lobby, Playing, Spectating, Ended}`) and the websocket message types `ClientToServerMessage` / `ServerToClientMessage`. The wire protocol is JSON-serialized versions of these enums.
 - **`ratatui-app/`** — the UI, as a library. Uses `ratatui` for rendering plus a `taffy`-based flexbox layout engine (`nodes.rs`). Key entry points: `hanabi_app::HanabiApp` (in-game UI) and `input_app::AppInput` (the lobby/name/session-id entry screen). It is backend-agnostic — no IO, no direct terminal or websocket.
 - **`web-client/`** — the egui/eframe/WASM shell that hosts `ratatui-app` via the `ratframe` bridge. `src/main.rs` owns the `HelloApp` state machine (`TuiState::{AppInput, CreatingGame, HanabiApp, Test}`) and the websocket lifecycle; `hanabi_backend.rs` is a custom `ratatui::Backend` that paints into egui. Built with `trunk`. The websocket URL is derived at runtime from the browser's own origin — the page always talks back to whatever host served it.
-- **`server/`** — plain Axum + Tokio binary. `main.rs` wires the `/websocket` upgrade and serves `dist/` as static files via `ServeDir`. `server.rs` holds `LobbyServer` (game/lobby state machine, persistence) and dispatches `ClientToServerMessage`s. `model.rs` owns the Postgres data access layer; `migrations/*.sql` is the schema. DB connection comes from `DATABASE_URL` env var.
+- **`server/`** — plain Axum + Tokio binary, with `lib.rs` exposing the modules so integration tests can reuse them. `main.rs` is thin bootstrapping; `app.rs` owns `build_router(Arc<dyn Database>) -> Router` and the websocket upgrade. `lobby.rs` holds `LobbyServer` (game/lobby state machine) and dispatches `ClientToServerMessage`s. `model.rs` defines `trait Database` + `PgDatabase` (sqlx + Postgres) — tests use an in-memory impl. `migrations/*.sql` is the schema. DB connection comes from `DATABASE_URL` env var.
 
 ### Data flow
 
@@ -43,10 +43,28 @@ This is a Cargo workspace for a multiplayer Hanabi card game. Authoritative game
 
 Every player action is written to the `game_log` table in Postgres as it happens (see `save_action` in `server/src/model.rs`). Tables: `game_config` (setup), `player` (roster), `game_log` (action history with timestamps).
 
-When a client sends `Join { session_id }` for a game that is NOT in the server's in-memory `HashMap`, `LobbyServer::hydrate` (`server/src/server.rs:281`) reads the config, players, and full action log from Postgres and replays every action through `GameLog::log()` to reconstruct the live state. This means:
+When a client sends `Join { session_id }` for a game that is NOT in the server's in-memory `HashMap`, `LobbyServer::hydrate` (in `server/src/lobby.rs`) reads the config, players, and full action log from Postgres and replays every action through `GameLog::log()` to reconstruct the live state. This means:
 
 - A restart (e.g. Fly Machine auto-stopping when idle, then waking on the next connection) loses in-memory lobbies but **no game data** — any reconnecting player triggers hydration and the game resumes exactly where it left off.
 - All played games are durably browsable from the DB (no UI for this yet; read-only replay would be a future addition).
+
+## Testing
+
+Full reference: [`TESTING.md`](TESTING.md). Quick decision tree for "where does my test go":
+
+| Touched | Add a test in |
+|---|---|
+| Game rules in `shared/src/logic.rs` | `shared/src/logic.rs` `#[test]` (unit) |
+| A new "this can never happen" invariant | `shared/tests/proptest_invariants.rs` (proptest) |
+| `apply_local_mutation` (optimistic client preview) | `shared/tests/client_logic_parity.rs` (parity vs server) |
+| One UI component in `ratatui-app/src/components.rs` | `ratatui-app/tests/component_snapshots.rs` (insta) |
+| Top-level screens / `HanabiApp::ui` dispatch | `ratatui-app/tests/render_snapshots.rs` (insta) |
+| `LobbyServer::message_received` behavior | `server/tests/lobby.rs` (in-memory `MemDatabase`) |
+| SQL / migrations / hydration replay | `server/tests/hydration_pg.rs` (gated on `TEST_DATABASE_URL`) |
+| Wire protocol, websocket upgrade, Axum router | `server/tests/e2e_websocket.rs` (real `tokio-tungstenite`) |
+| `web-client/` (WASM shell, egui adapter) | No automated coverage — verify manually in browser |
+
+Default to the cheapest layer that catches the regression. Snapshot tests use `insta` — update them with `cargo insta accept` (or `cargo insta review` for interactive). All test fixtures and the `GameStateSnapshotBuilder` live in `shared/src/test_data.rs` behind the `test-helpers` Cargo feature; consume them from any crate's `[dev-dependencies]` via `shared = { path = "../shared", features = ["test-helpers"] }`. The Postgres-backed test reads `TEST_DATABASE_URL` and silently skips if unset — for local runs, `just db-init` then export it pointing at `hanabi_$WORKTREE_DB`.
 
 ## Deployment
 
@@ -54,7 +72,7 @@ When a client sends `Join { session_id }` for a game that is NOT in the server's
 
 **Neon** provides the Postgres. Connection string is set via `flyctl secrets set DATABASE_URL=...`.
 
-CI: `.github/workflows/integration.yml` runs `cargo test` on push/PR. `.github/workflows/deploy-fly.yml` is `workflow_dispatch` only (manual) — requires `FLY_API_TOKEN` repo secret.
+CI: `.github/workflows/integration.yml` runs three jobs on push/PR — `lint` (fmt + clippy, currently advisory), `test` (with a Postgres service so `TEST_DATABASE_URL`-gated tests run), and `coverage` (uploads an `lcov.info` artifact via `cargo-llvm-cov`). `.github/workflows/deploy-fly.yml` is `workflow_dispatch` only (manual) — requires `FLY_API_TOKEN` repo secret.
 
 Note: there is no staging environment. Any `flyctl deploy` goes straight to production.
 

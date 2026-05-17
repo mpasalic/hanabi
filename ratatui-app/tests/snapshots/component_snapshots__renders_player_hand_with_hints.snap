@@ -1,0 +1,25 @@
+---
+source: ratatui-app/tests/component_snapshots.rs
+expression: "render_node(node, 40, 22)"
+snapshot_kind: text
+---
+╭────alice ────╮                       
+│╭─╮╭─╮╭─╮╭─╮╭─╮│                       
+││1││2││ ││ ││ ││                       
+│╰─╯╰─╯╰─╯╰─╯╰─╯│                       
+│════ hints ════│                       
+│ R             │                       
+│ 1             │                       
+│               │                       
+│────── 󰦎 ──────│                       
+│    5          │                       
+│               │                       
+│               │                       
+│               │                       
+│               │                       
+│               │                       
+│               │                       
+│               │                       
+│               │                       
+│               │                       
+╰───────────────╯

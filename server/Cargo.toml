@@ -14,9 +14,14 @@ tower-http = { version = "0.5.0", features = ["fs"] }
 shared = { path = "../shared" }
 tokio-stream = "0.1.15"
 anyhow = "1.0.83"
+async-trait = "0.1"
 sqlx = { version = "0.8.2", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "chrono", "json"] }
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 dotenvy = "0.15"
+
+[dev-dependencies]
+shared = { path = "../shared", features = ["test-helpers"] }
+tokio-tungstenite = "0.21"
