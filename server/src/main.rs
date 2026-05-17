@@ -1,344 +1,257 @@
-use std::collections::HashMap;
-use std::sync::mpsc;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread;
+mod model;
+mod server;
 
-use shared::client_logic::ClientToServerMessage;
-use shared::client_logic::GameLog;
-use shared::client_logic::ServerToClientMessage;
-use shared::model::GameConfig;
-use shared::model::PlayerIndex;
-use websocket::OwnedMessage;
+use crate::server::{ClientId, LobbyError};
 
-#[derive(Debug, Clone)]
-struct SocketClient {
-    id: i32,
-    sender: Option<mpsc::Sender<OwnedMessage>>,
+use axum::{
+    extract::{
+        ws::{Message, Utf8Bytes, WebSocket},
+        WebSocketUpgrade,
+    },
+    response::IntoResponse,
+    routing::get,
+    Extension, Router,
+};
+use futures::{FutureExt, StreamExt};
+use server::{LobbyClient, LobbyServer};
+use shared::client_logic::{ClientToServerMessage, ServerToClientMessage};
+use sqlx::postgres::PgPoolOptions;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{mpsc, Mutex};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use tower_http::services::ServeDir;
+use tracing::info;
+
+struct ServerStateSchema {
+    clients_count: usize,
+    client_map: HashMap<ClientId, LobbyClient>,
+    lobby_server: LobbyServer,
+}
+type ServerState = Arc<Mutex<ServerStateSchema>>;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let _ = dotenvy::dotenv();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    info!("Starting server...");
+
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| anyhow::anyhow!("DATABASE_URL env var is required"))?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+
+    info!("Running migrations...");
+    sqlx::migrate!().run(&pool).await?;
+    info!("Migrations completed successfully.");
+
+    info!("Creating server state...");
+    let state = Arc::new(Mutex::new(ServerStateSchema {
+        clients_count: 0,
+        client_map: HashMap::new(),
+        lobby_server: LobbyServer::new(pool),
+    }));
+
+    let router = Router::new()
+        .route("/websocket", get(websocket_handler))
+        .fallback_service(ServeDir::new("dist"))
+        .layer(Extension(state));
+
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8080);
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
+    info!("Listening on 0.0.0.0:{port}");
+    axum::serve(listener, router).await?;
+
+    Ok(())
 }
 
-#[derive(Debug, Clone)]
-struct SocketPlayer {
-    name: String,
-    socket_id: i32,
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    Extension(state): Extension<Arc<Mutex<ServerStateSchema>>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| websocket(socket, state))
 }
 
-#[derive(Debug, Clone)]
-enum GameLobbyStatus {
-    Waiting,
-    Playing(GameLog),
-}
+async fn websocket(stream: WebSocket, state: ServerState) {
+    // By splitting we can send and receive at the same time.
+    let (client_ws_sender, mut client_ws_rcv) = stream.split();
+    let (client_sender, client_rcv) = mpsc::unbounded_channel::<ServerToClientMessage>();
 
-#[derive(Debug, Clone)]
-struct GameLobby {
-    players: Vec<SocketPlayer>,
-    status: GameLobbyStatus,
-}
+    let client_rcv = UnboundedReceiverStream::new(client_rcv);
 
-#[derive(Debug, Clone)]
-struct SocketMessage<T> {
-    message: T,
-    socket_id: i32,
-}
+    let client_id = {
+        let mut state = state.lock().await;
+        let client_id = ClientId(state.clients_count);
+        let new_client = LobbyClient {
+            client_id: client_id,
+            sender: client_sender,
+        };
+        state.client_map.insert(client_id, new_client);
+        state.clients_count += 1;
+        client_id
+    };
 
-fn main() {
-    println!("{}", "Hanabi Simulator v0.1.0");
-    // let num_players: usize = 5;
+    let client_id_clone = client_id;
+    tokio::task::spawn(
+        client_rcv
+            .map(move |m| {
+                let message = serde_json::to_string(&m).expect("json");
 
-    // We use this channel to broadcast a message (from the server) to all the clients.
-    // If you want to broadcast something, server_to_client_sender.send(...)
-    let (broadcast_something, listener_for_things_to_broadcast) =
-        mpsc::channel::<SocketMessage<ServerToClientMessage>>();
-
-    let (got_message_from_client, listener_for_messages_from_client) =
-        mpsc::channel::<SocketMessage<ClientToServerMessage>>();
-
-    let game_lobby_map: Arc<Mutex<HashMap<String, GameLobby>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-
-    let socket_clients: Arc<Mutex<HashMap<i32, SocketClient>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-
-    let broadcasting_handler = {
-        // Automatic reference counting
-        let socket_clients = Arc::clone(&socket_clients);
-        thread::spawn(move || loop {
-            println!("Listening for broadcasts");
-            let message_to_broadcast = listener_for_things_to_broadcast.recv().unwrap();
-            println!("Broadcasting {:?}", message_to_broadcast);
-
-            let message_text = serde_json::to_string(&message_to_broadcast.message)
-                .expect("Failed to parse the message");
-
-            {
-                let socket_clients = socket_clients.lock().unwrap();
-
-                if let Some(socket_client) = socket_clients.get(&message_to_broadcast.socket_id) {
-                    if let Some(socket_client_sender) = &socket_client.sender {
-                        println!(
-                            "Sending message to {}: {}",
-                            message_to_broadcast.socket_id, message_text
-                        );
-                        let message = OwnedMessage::Text(message_text.clone());
-                        let result = socket_client_sender
-                            .send(message)
-                            .expect("Failed to broadcast");
-                    }
+                println!("Sending message to {:?}: {}", client_id_clone, message);
+                Ok(Message::Text(Utf8Bytes::from(message)))
+            })
+            .forward(client_ws_sender)
+            .map(|result| {
+                if let Err(e) = result {
+                    println!("error sending websocket msg: {}", e);
                 }
+            }),
+    );
+
+    while let Some(result) = client_ws_rcv.next().await {
+        let msg = match result {
+            Ok(msg) => msg,
+            Err(e) => {
+                println!("error receiving message for id {:?}): {}", client_id, e);
+                break;
             }
-        })
-    };
+        };
+        client_msg(client_id, msg, &state).await;
+    }
 
-    let message_from_client_handler = {
-        let game_lobby_map = Arc::clone(&game_lobby_map);
+    // state.lock().await.su
+    // clients.lock().await.insert(uuid.clone(), new_client);
 
-        thread::spawn(move || loop {
-            let message_from_client = listener_for_messages_from_client.recv().unwrap();
-            println!("Handling {:?}", message_from_client);
+    // let (client_id, mut rx) = {
+    //     let mut state = state.lock().await;
+    //     let client_id = state.clients_count;
+    //     let new_client = Client {
+    //         client_id,
+    //         sender: Some(client_sender),
+    //     };
 
-            match message_from_client {
-                SocketMessage { message, socket_id } => {
-                    let mut game_lobby_map = game_lobby_map.lock().unwrap();
+    //     (client_id, state.tx.subscribe())
+    // };
 
-                    match message {
-                        ClientToServerMessage::Join {
-                            player_name,
-                            session_id,
-                        } => {
-                            let game_lobby = game_lobby_map.get_mut(&session_id);
-                            if let Some(game_lobby) = game_lobby {
-                                println!("Player {} joined {:?}", player_name, game_lobby);
+    // let (client_id, mut rx) = {
+    //     let mut state = state.lock().await;
+    //     let client_id = state.clients_count;
 
-                                game_lobby.players.push(SocketPlayer {
-                                    name: player_name.clone(),
-                                    socket_id: socket_id.clone(),
-                                });
+    //     state.clients_count += 1;
+    //     (client_id, state.tx.subscribe())
+    // };
 
-                                let messages = game_lobby.players.iter().map(|p| SocketMessage {
-                                    message: ServerToClientMessage::PlayerJoined {
-                                        players: game_lobby
-                                            .players
-                                            .iter()
-                                            .map(|p| p.name.clone())
-                                            .collect(),
-                                    },
-                                    socket_id: p.socket_id,
-                                });
+    // while let Some(result) = client_ws_rcv.next().await {
+    //     let msg = match result {
+    //         Ok(msg) => msg,
+    //         Err(e) => {
+    //             println!("error receiving message for id {}): {}", client_id, e);
+    //             break;
+    //         }
+    //     };
+    //     client_msg(client_id, msg, &state).await;
+    // }
 
-                                for message in messages.into_iter() {
-                                    println!("Sending Joined {:?}", message);
-                                    broadcast_something.send(message).expect("channel error");
-                                }
-                            } else {
-                                println!("Player {} joined new lobby {}", player_name, session_id);
-                                let players = vec![SocketPlayer {
-                                    name: player_name.clone(),
-                                    socket_id: socket_id,
-                                }];
+    state.lock().await.client_map.remove(&client_id);
+    state.lock().await.lobby_server.disconnected(client_id);
+    println!("{:?} disconnected", client_id);
 
-                                game_lobby_map.insert(
-                                    session_id,
-                                    GameLobby {
-                                        players: players.clone(),
-                                        status: GameLobbyStatus::Waiting,
-                                    },
-                                );
-                            }
-                        }
-                        ClientToServerMessage::StartGame => {
-                            let game_lobby = game_lobby_map.values_mut().find(|game_log| {
-                                game_log
-                                    .players
-                                    .iter()
-                                    .find(|p| p.socket_id == socket_id)
-                                    .is_some()
-                            });
+    // This task will receive watch messages and forward it to this connected client.
+    // let mut send_task = tokio::spawn(async move {
+    //     loop {
+    //         let message = rx.recv().await;
+    //         if let Ok(message) = message {
+    //             if message.socket_id == client_id {
+    //                 if client_ws_sender.send(message.message).await.is_err() {
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     }
+    // });
 
-                            if let Some(game_lobby) = game_lobby {
-                                let game_log = GameLog::new(GameConfig {
-                                    num_players: game_lobby.players.len(),
-                                    hand_size: 4,
-                                    num_fuses: 3,
-                                    num_hints: 8,
-                                    starting_player: PlayerIndex(0),
-                                    seed: 0,
-                                });
+    // {
+    //     let state = state.clone();
+    //     // This task will receive messages from this client.
+    //     let mut recv_task = tokio::spawn(async move {
+    //         while let Some(Ok(Message::Text(text))) = client_ws_rcv.next().await {
+    //             let client_to_server_msg: Result<ClientToServerMessage, _> =
+    //                 serde_json::from_str(&text);
 
-                                let game_state = game_log.current_game_state();
-                                game_lobby.status = GameLobbyStatus::Playing(game_log);
+    //             if let Ok(client_to_server_msg) = client_to_server_msg {
+    //                 let mut state = state.lock().await;
 
-                                let messages =
-                                    game_lobby.players.iter().enumerate().map(|(index, p)| {
-                                        SocketMessage {
-                                            message: ServerToClientMessage::GameStarted {
-                                                player_index: PlayerIndex(index),
-                                                game_state: game_state
-                                                    .clone()
-                                                    .into_client_game_state(PlayerIndex(index)),
-                                            },
-                                            socket_id: p.socket_id,
-                                        }
-                                    });
-                                for message in messages.into_iter() {
-                                    broadcast_something.send(message).expect("Channel error");
-                                }
-                            }
-                        }
+    //                 let messages = state
+    //                     .lobby_server
+    //                     .message_received(client_id, client_to_server_msg);
 
-                        ClientToServerMessage::PlayerAction { action, .. } => {
-                            let game_lobby = game_lobby_map.values_mut().find(|game_log| {
-                                game_log
-                                    .players
-                                    .iter()
-                                    .find(|p| p.socket_id == socket_id)
-                                    .is_some()
-                            });
+    //                 for socket_msg in messages {
+    //                     let msg = Message::Text(
+    //                         serde_json::to_string(&socket_msg.message).expect("json"),
+    //                     );
+    //                     state
+    //                         .tx
+    //                         .send(SocketMessage {
+    //                             message: msg,
+    //                             socket_id: socket_msg.socket_id,
+    //                         })
+    //                         .expect("channel");
+    //                 }
+    //             }
+    //         }
+    //     });
+    //     // If any one of the tasks exit, abort the other.
+    //     tokio::select! {
+    //         _ = (&mut send_task) => recv_task.abort(),
+    //         _ = (&mut recv_task) => send_task.abort(),
+    //     };
+}
 
-                            if let Some(GameLobby {
-                                players,
-                                status: GameLobbyStatus::Playing(game_log),
-                            }) = game_lobby
-                            {
-                                let new_game_state = game_log.log(action);
+async fn client_msg(client_id: ClientId, msg: Message, state: &ServerState) {
+    match msg {
+        Message::Text(text) => {
+            println!("Got message from client {:?}: {}", client_id, text);
 
-                                if let Ok(game_state) = new_game_state {
-                                    let messages = players.iter().enumerate().map(|(index, p)| {
-                                        SocketMessage {
-                                            message: ServerToClientMessage::UpdatedGameState(
-                                                game_state
-                                                    .clone()
-                                                    .into_client_game_state(PlayerIndex(index)),
-                                            ),
-                                            socket_id: p.socket_id,
-                                        }
-                                    });
-                                    for message in messages.into_iter() {
-                                        broadcast_something.send(message).expect("channel error");
-                                    }
-                                }
-                            }
-                        }
+            let client_to_server_msg: Result<ClientToServerMessage, _> =
+                serde_json::from_str(&text);
+
+            if let Ok(client_to_server_msg) = client_to_server_msg {
+                let mut state = state.lock().await;
+                let client = state.client_map.get(&client_id).unwrap().clone();
+
+                // handle result
+                let result = state
+                    .lobby_server
+                    .message_received(&client, client_to_server_msg)
+                    .await;
+
+                match result {
+                    Err(LobbyError::InvalidState(err) | LobbyError::InvalidPlayerAction(err)) => {
+                        println!("error handling message: {:?}", err);
+                        client
+                            .sender
+                            .send(ServerToClientMessage::Error(err))
+                            .unwrap();
                     }
+                    Err(LobbyError::SqlError(err)) => println!("sql error: {:?}", err),
+                    _ => {}
                 }
+            } else {
+                println!("error parsing message: {:?}", client_to_server_msg);
             }
-
-            println!("new state: {:?}", game_lobby_map);
-        })
-    };
-
-    let socket_connection_manager_handler = {
-        let socket_clients = Arc::clone(&socket_clients);
-        let got_message_from_client = got_message_from_client.clone();
-
-        // Listening for connections thread
-        thread::spawn(move || {
-            let addr = "127.0.0.1:7879";
-
-            println!("Listening for Socket requests on {}", addr);
-
-            let socket_listener = websocket::sync::Server::bind(addr).unwrap();
-            let mut socket_counter = 0;
-
-            for connection in socket_listener.filter_map(Result::ok) {
-                let socket_clients = Arc::clone(&socket_clients);
-
-                let socket_id = socket_counter;
-                socket_counter = socket_counter + 1;
-
-                let got_message_from_client = got_message_from_client.clone();
-
-                // Got a connection thread
-                thread::spawn(move || {
-                    let ws_client = connection.accept().unwrap();
-                    let (socket_channel_for_writing, socket_channel_handler_for_writing) =
-                        mpsc::channel();
-
-                    println!("New socket connection {}", socket_id);
-
-                    let socket_client = SocketClient {
-                        id: socket_id,
-                        sender: Some(socket_channel_for_writing.clone()),
-                    };
-
-                    // Limit locking as much as possible.
-                    {
-                        let mut socket_clients = socket_clients.lock().unwrap();
-                        socket_clients.insert(socket_id, socket_client);
-                    }
-
-                    let (mut socket_stream_read, mut socket_stream_write) =
-                        ws_client.split().unwrap();
-
-                    // Thread for listening on sockets
-                    {
-                        thread::spawn(move || {
-                            println!("Socket channel {} listening", socket_id);
-                            while let Ok(message) = socket_channel_handler_for_writing.recv() {
-                                println!(
-                                    "Socket channel {} received message: {:?}",
-                                    socket_id, message
-                                );
-                                let result = socket_stream_write.send_message(&message);
-
-                                match result {
-                                    Ok(_) => {
-                                        println!("Sent message through socket: {:?}", message)
-                                    }
-                                    Err(error) => {
-                                        println!("Error sending message to client {}", error)
-                                    }
-                                }
-                            }
-                        });
-                    }
-
-                    let socket_channel_sender = socket_channel_for_writing.clone();
-
-                    println!("Socket TCP {} listening", socket_id);
-                    for from_client_message in socket_stream_read.incoming_messages() {
-                        let message = from_client_message.unwrap();
-                        println!("Socket TCP {} received message: {:?}", socket_id, message);
-
-                        let result = match message {
-                            OwnedMessage::Close(_) => {
-                                let message = OwnedMessage::Close(None);
-                                socket_channel_sender.send(message)
-                            }
-                            OwnedMessage::Ping(ping) => {
-                                let message = OwnedMessage::Pong(ping);
-                                socket_channel_sender.send(message)
-                            }
-                            OwnedMessage::Text(text) => {
-                                let message: ClientToServerMessage =
-                                    serde_json::from_str(&text).expect("Error parsing message");
-                                got_message_from_client
-                                    .send(SocketMessage { message, socket_id })
-                                    .expect("Channel issue");
-                                Ok(())
-                            }
-                            _ => socket_channel_sender.send(message),
-                        };
-
-                        match result {
-                            Err(err) => {
-                                println!("Error from client: {}", err);
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    {
-                        println!("Client {} disconnected", socket_id);
-                        let mut socket_clients = socket_clients.lock().unwrap();
-                        socket_clients.remove(&socket_id);
-                    }
-                });
-            }
-        })
-    };
-
-    message_from_client_handler.join().unwrap();
-    broadcasting_handler.join().unwrap();
-    socket_connection_manager_handler.join().unwrap();
+        }
+        _ => {}
+    }
 }

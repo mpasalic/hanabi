@@ -1,5 +1,3 @@
-# shuttle-template-yew Trunk configuration file
-
 [build]
 dist = "../dist"
 public_url = "./"

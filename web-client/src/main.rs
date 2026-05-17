@@ -115,25 +115,24 @@ impl Default for HelloApp {
     }
 }
 
-fn get_websocket_url(_cc: &eframe::CreationContext<'_>) -> String {
-    "wss://hanabi-ufgm.shuttle.app/websocket".to_string()
+#[cfg(target_arch = "wasm32")]
+fn get_websocket_url(cc: &eframe::CreationContext<'_>) -> String {
+    let proto = &cc.integration_info.web_info.location.protocol;
+    let host = &cc.integration_info.web_info.location.host;
+
+    console_log!("Protocol: '{:?}'", proto);
+    console_log!("Host: '{:?}'", host);
+
+    match proto.as_str() {
+        "https:" => format!("wss://{}/websocket", host),
+        _ => format!("ws://{}/websocket", host),
+    }
 }
 
-// #[cfg(target_arch = "wasm32")]
-// fn get_websocket_url(cc: &eframe::CreationContext<'_>) -> String {
-//     let proto = &cc.integration_info.web_info.location.protocol;
-//     let host = &cc.integration_info.web_info.location.host;
-
-//     console_log!("Protocol: '{:?}'", proto);
-//     console_log!("Host: '{:?}'", host);
-
-//     let url = match proto.as_str() {
-//         "https:" => format!("wss://{}/websocket", host),
-//         _ => format!("ws://{}/websocket", host),
-//     };
-
-//     url
-// }
+#[cfg(not(target_arch = "wasm32"))]
+fn get_websocket_url(_cc: &eframe::CreationContext<'_>) -> String {
+    "ws://127.0.0.1:8080/websocket".to_string()
+}
 
 #[cfg(target_arch = "wasm32")]
 fn get_web_url(cc: &eframe::CreationContext<'_>) -> String {

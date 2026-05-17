@@ -7,23 +7,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 All common workflows are in `justfile` — `just --list` prints them.
 
 - `just build` — cargo build the workspace + `trunk build` the WASM web client into `dist/`
-- `just test` — `just build` then `cargo test` (all tests live in the workspace crates; `shared/` has the bulk of the game-logic tests)
+- `just test` — `just build` then `cargo test` (most tests live in `shared/`)
 - `cargo test -p shared` / `cargo test -p ratatui-app` — scope tests to one workspace crate
 - `cargo test -p shared <test_name>` — run a single test by name
-- `just run` — `trunk serve --open` the web client on `:8080`, proxying `/websocket` to a local Shuttle backend on `:8000` (start that separately with `just serve`)
-- `just run-release` — same, but proxies to the deployed Shuttle server at `wss://hanabi.shuttleapp.rs`
-- `just serve` — build + `cargo shuttle run` (serves the API on `:8000` and also the prebuilt `dist/` at `/`; the web-client WASM is NOT auto-rebuilt — rerun `just build` on changes)
-- `just serve-external` — `cargo shuttle run --external` (bind to `0.0.0.0`)
-- `just build-release` — release WASM build for the web client
-- `just release` — `just build-release` then `cargo shuttle deploy`
-
-Note: the README references command names (`run-shuttle-dev`, `run-web-dev`, `build-web-release`, `deploy-shuttle-release`) that do NOT exist in the justfile. Use the names above.
-
-Prerequisites: `cargo install just trunk`, plus the Shuttle CLI (`cargo install cargo-shuttle` / `cargo install shuttle`). `wasm32-unknown-unknown` target is required for the web client.
+- `just serve` — build + `cargo run -p server`. Needs `DATABASE_URL` in env (or a `.env` at repo root). Serves websocket at `/websocket` and the prebuilt `dist/` at `/` on `:8080`.
+- `just run` — `trunk serve --open` the web client on `:8080`, proxying `/websocket` to a local server on `:8080`. Auto-recompiles on `web-client/` changes only (not `shared/` or `ratatui-app/`).
+- `just run-release` — same, but proxies to the deployed Fly.io server (`wss://hanabi-tui.fly.dev/websocket`).
+- `just build-release` — release WASM build for the web client.
+- `just release` — `just build-release` then `flyctl deploy`.
+- `just logs` — tail Fly.io logs.
 
 ## Architecture
 
-This is a Cargo workspace for a multiplayer Hanabi card game. Authoritative game state lives on an Axum/Shuttle server; clients are thin views that render a Ratatui UI inside egui in the browser (WASM).
+This is a Cargo workspace for a multiplayer Hanabi card game. Authoritative game state lives on an Axum server deployed to Fly.io; game history is persisted to Postgres (Neon). Clients are thin views that render a Ratatui UI inside egui in the browser (WASM).
 
 ### Workspace crates (see root `Cargo.toml`)
 
@@ -32,32 +28,39 @@ This is a Cargo workspace for a multiplayer Hanabi card game. Authoritative game
   - `logic.rs` — authoritative game engine (move validation, effects, outcome).
   - `client_logic.rs` — client-visible projections (`GameStateSnapshot`, `HanabiGame::{Lobby, Playing, Spectating, Ended}`) and the websocket message types `ClientToServerMessage` / `ServerToClientMessage`. The wire protocol is JSON-serialized versions of these enums.
 - **`ratatui-app/`** — the UI, as a library. Uses `ratatui` for rendering plus a `taffy`-based flexbox layout engine (`nodes.rs`). Key entry points: `hanabi_app::HanabiApp` (in-game UI) and `input_app::AppInput` (the lobby/name/session-id entry screen). It is backend-agnostic — no IO, no direct terminal or websocket.
-- **`web-client/`** — the egui/eframe/WASM shell that hosts `ratatui-app` via the `ratframe` bridge. `src/main.rs` owns the `HelloApp` state machine (`TuiState::{AppInput, CreatingGame, HanabiApp, Test}`) and the websocket lifecycle; `hanabi_backend.rs` is a custom `ratatui::Backend` that paints into egui. Built with `trunk`.
-- **`shuttle-server/`** — Axum server deployed via `shuttle-runtime`. `main.rs` wires the `/websocket` upgrade and serves `dist/` as static files via `ServeDir`. `server.rs` holds `LobbyServer` (game/lobby state machine, persistence) and dispatches `ClientToServerMessage`s. `model.rs` and `migrations/*.sql` are the Postgres schema (Shuttle provisions a shared Postgres via `#[shuttle_shared_db::Postgres]`).
+- **`web-client/`** — the egui/eframe/WASM shell that hosts `ratatui-app` via the `ratframe` bridge. `src/main.rs` owns the `HelloApp` state machine (`TuiState::{AppInput, CreatingGame, HanabiApp, Test}`) and the websocket lifecycle; `hanabi_backend.rs` is a custom `ratatui::Backend` that paints into egui. Built with `trunk`. The websocket URL is derived at runtime from the browser's own origin — the page always talks back to whatever host served it.
+- **`server/`** — plain Axum + Tokio binary. `main.rs` wires the `/websocket` upgrade and serves `dist/` as static files via `ServeDir`. `server.rs` holds `LobbyServer` (game/lobby state machine, persistence) and dispatches `ClientToServerMessage`s. `model.rs` owns the Postgres data access layer; `migrations/*.sql` is the schema. DB connection comes from `DATABASE_URL` env var.
 
 ### Data flow
 
 1. Browser loads the WASM bundle; `HelloApp::new` reads `session_id` from the URL query string and the persisted `player_name` from eframe storage.
-2. Websocket opens to the hardcoded `wss://hanabi-ufgm.shuttle.app/websocket` (see `get_websocket_url` in `web-client/src/main.rs` — currently not using the relative host; change there to proxy through the running host instead).
+2. Websocket opens to `wss://{current_host}/websocket` (or `ws://` for http). In production this is the Fly app itself; locally it's `127.0.0.1:8080`.
 3. Client sends `CreateGame` / `Join` / `Spectate` as the init message, then `PlayerAction` / `StartGame` while playing.
-4. Server validates via `shared::logic`, persists, and broadcasts `UpdatedGameState(HanabiGame)` or `Error(String)` to affected clients. `UpdatedConnectionStatus` is separate.
+4. Server validates via `shared::logic`, persists the action to Postgres (`save_action`), and broadcasts `UpdatedGameState(HanabiGame)` or `Error(String)` to affected clients. `UpdatedConnectionStatus` is separate.
 5. Client applies an **optimistic local mutation** (`GameStateSnapshot::apply_local_mutation`) before round-tripping — the authoritative snapshot from the server then replaces it.
 
-### Legacy directories (not in the workspace)
+### Persistence & recovery
 
-`client/` and `server/` contain older native-terminal and pre-Shuttle implementations. They are not in `[workspace] members` in the root `Cargo.toml` and do not build as part of `cargo build`. Do not modify them unless explicitly asked — new work goes in the four workspace crates above.
+Every player action is written to the `game_log` table in Postgres as it happens (see `save_action` in `server/src/model.rs`). Tables: `game_config` (setup), `player` (roster), `game_log` (action history with timestamps).
+
+When a client sends `Join { session_id }` for a game that is NOT in the server's in-memory `HashMap`, `LobbyServer::hydrate` (`server/src/server.rs:281`) reads the config, players, and full action log from Postgres and replays every action through `GameLog::log()` to reconstruct the live state. This means:
+
+- A restart (e.g. Fly Machine auto-stopping when idle, then waking on the next connection) loses in-memory lobbies but **no game data** — any reconnecting player triggers hydration and the game resumes exactly where it left off.
+- All played games are durably browsable from the DB (no UI for this yet; read-only replay would be a future addition).
 
 ## Deployment
 
-Two separate targets, both built from the same source:
+**Fly.io** (single Machine, auto-stop / auto-start) serves both the WASM web client (from `dist/`) and the websocket (`/websocket`) from the same origin. Configuration lives in `fly.toml` + `Dockerfile` at the repo root.
 
-- **GitHub Pages** (`.github/workflows/deploy-gh-pages.yml`, runs on push to `main`) — publishes the WASM web client to `https://mpasalic.github.io/hanabi`. It's a pure static build of `web-client/` → `dist/`; the page connects to the production Shuttle websocket URL.
-- **Shuttle** (`.github/workflows/deploy-shuttle.yml`, `workflow_dispatch` only — manual because of the free-tier deploy quota) — deploys `shuttle-server` to `https://hanabi-ufgm.shuttle.app`. `Shuttle.toml` ships `dist/*` as an asset so the Shuttle host can also serve the web client at `/`.
+**Neon** provides the Postgres. Connection string is set via `flyctl secrets set DATABASE_URL=...`.
 
-`just release` performs the Shuttle deploy from a local checkout.
+CI: `.github/workflows/integration.yml` runs `cargo test` on push/PR. `.github/workflows/deploy-fly.yml` is `workflow_dispatch` only (manual) — requires `FLY_API_TOKEN` repo secret.
+
+Note: there is no staging environment. Any `flyctl deploy` goes straight to production.
 
 ## Conventions
 
 - The wire protocol is just `serde_json` on the `ClientToServerMessage` / `ServerToClientMessage` enums in `shared/client_logic.rs`. Changing a variant is a breaking change for any already-connected clients — there is no versioning.
 - `PlayerIndex(usize)` and `SlotIndex(usize)` are newtypes; prefer them over raw `usize` at API boundaries.
 - There is no auth — player identity is just the chosen display name, and the server treats same-name reconnections as the same player (see README caveat). Don't add impersonation checks ad-hoc without discussing; it's a known design limitation.
+- DB queries use `sqlx::query_as::<_, Row>("SELECT ...")` with runtime SQL strings, not the compile-time `query!` macro. This means you don't need a live `DATABASE_URL` at build time and don't need a `.sqlx/` offline cache — but you also don't get compile-time schema checking. Preserve this pattern when adding queries.

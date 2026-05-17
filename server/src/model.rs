@@ -197,13 +197,14 @@ pub async fn create_game(
     };
 
     for (index, player) in players.iter().enumerate() {
-        sqlx::query_as::<_, _>(
-            "INSERT INTO player (game_id, player_index, display_name) VALUES ($1, $2, $3) RETURNING player_index",
+        sqlx::query(
+            "INSERT INTO player (game_id, player_index, display_name) VALUES ($1, $2, $3)",
         )
         .bind(&game_id)
         .bind(index as i16)
         .bind(player)
-        .fetch_one(pool).await?;
+        .execute(pool)
+        .await?;
     }
 
     Ok(game_id)
