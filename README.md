@@ -29,7 +29,14 @@ To start a game with friends, open the deployed URL and press [Enter] to create 
 
 ## Local environment
 
-1. Create a `.env` at the repo root with your Neon (or any Postgres) URL:
+1. Start a local Postgres 17 in Docker, and copy the example env file:
+   ```
+   just db
+   cp .env.example .env
+   ```
+   `just db` is idempotent — re-runs use the existing container; data lives in a named Docker volume so it survives `db-stop`/restart. Use `just db-reset` to wipe.
+
+   Alternatively, point `.env` at a Neon (or any other) Postgres URL:
    ```
    DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
    ```

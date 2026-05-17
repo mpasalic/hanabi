@@ -2,5 +2,4 @@
 .vscode
 /web-client/dist
 .DS_Store
-.shuttle*
-Secrets*.toml
+.env

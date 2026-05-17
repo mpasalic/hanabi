@@ -31,3 +31,24 @@ release: build-release
 # Tail Fly.io app logs
 logs:
   flyctl logs
+
+# Start a local Postgres 17 in Docker. Data persists in the `hanabi-pg-data` volume.
+# Use this DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/hanabi
+db:
+  @docker start hanabi-pg 2>/dev/null || docker run -d --name hanabi-pg \
+    -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=hanabi \
+    -p 5432:5432 \
+    -v hanabi-pg-data:/var/lib/postgresql/data \
+    postgres:17
+  @echo "Postgres running at postgresql://postgres:postgres@127.0.0.1:5432/hanabi"
+
+# Stop the local Postgres container (data preserved in the volume)
+db-stop:
+  docker stop hanabi-pg
+
+# Destroy the local Postgres container AND wipe its data
+db-reset:
+  -docker stop hanabi-pg
+  -docker rm hanabi-pg
+  -docker volume rm hanabi-pg-data
